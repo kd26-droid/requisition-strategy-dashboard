@@ -86,6 +86,7 @@ async function apiRequest<T>(
     timeoutMs?: number;
     maxRetries?: number;
     retryDelayMs?: number;
+    skipSuccessCheck?: boolean;
   } = {}
 ): Promise<T> {
   const token = getAuthToken();
@@ -94,7 +95,7 @@ async function apiRequest<T>(
     throw new Error('Authentication token not found. Please provide token in URL.');
   }
 
-  const { timeoutMs = 45000, maxRetries = 3, retryDelayMs = 1000, ...fetchOptions } = options;
+  const { timeoutMs = 45000, maxRetries = 3, retryDelayMs = 1000, skipSuccessCheck = false, ...fetchOptions } = options;
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -146,7 +147,7 @@ async function apiRequest<T>(
 
       const data = await response.json();
 
-      if (!data.success) {
+      if (!skipSuccessCheck && !data.success) {
         throw new Error(data.error || 'API request failed');
       }
 
@@ -173,6 +174,80 @@ async function apiRequest<T>(
   }
 
   throw lastError || new Error(`Failed after ${maxRetries + 1} attempts: ${endpoint}`);
+}
+
+// ============================================================================
+// Requisition Item Types
+// ============================================================================
+
+export interface RequisitionItemAttribute {
+  attribute_id: string;
+  attribute_name: string;
+  attribute_type: string;
+  attribute_values: Array<{
+    value: string | number;
+    measurement_unit?: {
+      measurement_unit_primary_name: string;
+      measurement_unit_abbreviation: string;
+    } | null;
+  }>;
+}
+
+export interface RequisitionItem {
+  // IDs needed for sending data back to Factwise
+  requisition_item_id: string;
+  requisition: string; // requisition UUID (FK)
+
+  // Item info
+  item_information: {
+    item_id: string;
+    item_name: string;
+    item_code: string;
+    custom_item_name?: string;
+    item_description?: string;
+    item_additional_details?: string;
+    ERP_item_code?: string;
+    MPN_item_code?: string;
+    CPN_item_code?: string;
+    HSN_item_code?: string;
+    custom_ids?: Array<{ name: string; value: string }>;
+  };
+
+  // Quantity
+  quantity: string;
+  measurement_unit_details: {
+    measurement_unit_name: string;
+    measurement_unit_abbreviation: string;
+  } | null;
+
+  // Pricing
+  pricing_information: {
+    desired_price?: string | number | null;
+    currency_code_abbreviation?: string;
+    currency_symbol?: string;
+    total_price?: string | number | null;
+  };
+
+  // Specs / attributes
+  attributes: RequisitionItemAttribute[];
+
+  // Tags (for auto-assign matching)
+  tags: string[];
+
+  // For assignment write-back
+  custom_requisition_id?: string;
+}
+
+export interface RequisitionItemsResponse {
+  data: RequisitionItem[];
+  metadata: {
+    total: number;
+    page: number;
+    per_page: number;
+  };
+  counts: {
+    all: number;
+  };
 }
 
 // ============================================================================
@@ -927,4 +1002,40 @@ export async function triggerMouserPricing(
       method: 'POST'
     }
   );
+}
+
+// ============================================================================
+// Requisition Items API
+// ============================================================================
+
+/**
+ * Fetch all items across selected requisitions using the dashboard API.
+ * Uses dashboard_view: "inbound_requisition_items" with requisition_id_list.
+ */
+export async function getRequisitionItems(
+  requisitionIds: string[],
+  options: {
+    page?: number;
+    itemsPerPage?: number;
+    searchText?: string;
+  } = {}
+): Promise<RequisitionItemsResponse> {
+  const { page = 1, itemsPerPage = 100, searchText = '' } = options;
+
+  return apiRequest<RequisitionItemsResponse>('/dashboard/', {
+    method: 'POST',
+    body: JSON.stringify({
+      dashboard_view: 'inbound_requisition_items',
+      tab: 'all',
+      sort_fields: [{ field: 'created_datetime', ascending: true }],
+      search_text: searchText,
+      items_per_page: itemsPerPage,
+      page_number: page,
+      query_data: {
+        requisition_id_list: requisitionIds,
+      },
+    }),
+    // Dashboard API does not return a top-level `success` field
+    skipSuccessCheck: true,
+  });
 }
