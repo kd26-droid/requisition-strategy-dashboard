@@ -1426,15 +1426,14 @@ export default function ProcurementDashboard() {
     let filtered = lineItems.filter((item: any) => {
       const term = searchTerm.toLowerCase()
       const matchesSearch =
-        item.customer.toLowerCase().includes(term) ||
-        item.description.toLowerCase().includes(term) ||
-        item.itemId.toLowerCase().includes(term) ||
-        item.vendor.toLowerCase().includes(term) ||
-        // Search custom identifications (MPN, CPN, etc.)
-        customIdColumns.some(idName => {
-          const key = `customId_${idName.replace(/\s+/g, '_')}`
-          return (item[key] || '').toLowerCase().includes(term)
-        }) ||
+        (item.description || '').toLowerCase().includes(term) ||
+        (item.itemId || '').toLowerCase().includes(term) ||
+        (item.internalNotes || '').toLowerCase().includes(term) ||
+        (item.category || '').toLowerCase().includes(term) ||
+        (item.erpCode || '').toLowerCase().includes(term) ||
+        (item.mpn || '').toLowerCase().includes(term) ||
+        (item.cpn || '').toLowerCase().includes(term) ||
+        (item.hsn || '').toLowerCase().includes(term) ||
         // Search spec columns
         specColumns.some(specName => {
           const key = `spec_${specName.replace(/\s+/g, '_')}`
