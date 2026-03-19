@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Factwise API Test</title>
+    <style>
+        body {
+            font-family: 'Monaco', 'Courier New', monospace;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #00ff00;
+        }
+        h1 {
+            color: #00ff00;
+            text-align: center;
+        }
+        .input-group {
+            margin: 20px 0;
+            padding: 15px;
+            background: #2a2a2a;
+            border-radius: 5px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #00ff00;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            background: #1a1a1a;
+            border: 1px solid #00ff00;
+            color: #00ff00;
+            font-family: 'Monaco', monospace;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #00ff00;
+            color: #1a1a1a;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 3px;
+        }
+        button:hover {
+            background: #00cc00;
+        }
+        button:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+        }
+        .test-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            background: #2a2a2a;
+            border-left: 4px solid #00ff00;
+            white-space: pre-wrap;
+            font-family: 'Monaco', monospace;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .error {
+            border-left-color: #ff0000;
+            color: #ff0000;
+        }
+        .success {
+            border-left-color: #00ff00;
+        }
+        .status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: #2a2a2a;
+            border-radius: 5px;
+            border: 2px solid #00ff00;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Factwise Strategy API Test Suite</h1>
+
+    <div class="status" id="status">Ready</div>
+
+    <div class="input-group">
+        <label>API Base URL:</label>
+        <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+    </div>
+
+    <div class="input-group">
+        <label>Project ID:</label>
+        <input type="text" id="projectId" value="47be9179-490a-4af7-9409-312b8b69c63b" placeholder="Enter project UUID">
+    </div>
+
+    <div class="input-group">
+        <label>Auth Token (JWT):</label>
+        <input type="password" id="authToken" placeholder="Paste your JWT token here">
+        <small style="color: #888;">Get this from localStorage.getItem('idToken') in Factwise</small>
+    </div>
+
+    <div class="test-buttons">
+        <button onclick="testOverview()">1️⃣ Test Overview</button>
+        <button onclick="testItems()">2️⃣ Test Get Items</button>
+        <button onclick="testUpdateItem()">3️⃣ Test Update Item</button>
+        <button onclick="testUsers()">4️⃣ Test Get Users</button>
+        <button onclick="testVendors()">5️⃣ Test Get Vendors</button>
+        <button onclick="testCategories()">6️⃣ Test Get Categories</button>
+        <button onclick="testBulkAssign()">7️⃣ Test Bulk Assign</button>
+        <button onclick="runAllTests()" style="grid-column: 1 / -1; background: #ff9900;">🚀 Run All Tests</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        let firstItemId = null;
+        let firstUserId = null;
+
+        function getConfig() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const projectId = document.getElementById('projectId').value;
+            const authToken = document.getElementById('authToken').value;
+
+            if (!authToken) {
+                alert('Please enter an auth token!');
+                throw new Error('No auth token');
+            }
+
+            return { apiUrl, projectId, authToken };
+        }
+
+        function setStatus(message, isError = false) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.style.borderColor = isError ? '#ff0000' : '#00ff00';
+            statusEl.style.color = isError ? '#ff0000' : '#00ff00';
+        }
+
+        function addResult(title, data, isError = false) {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `result ${isError ? 'error' : 'success'}`;
+            resultDiv.innerHTML = `<strong>${title}</strong>\n${JSON.stringify(data, null, 2)}`;
+            resultsDiv.insertBefore(resultDiv, resultsDiv.firstChild);
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            const { apiUrl, authToken } = getConfig();
+
+            const response = await fetch(`${apiUrl}${endpoint}`, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${authToken}`,
+                    ...options.headers,
+                },
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+
+            return data;
+        }
+
+        async function testOverview() {
+            try {
+                setStatus('Testing Overview API...');
+                const { projectId } = getConfig();
+
+                const data = await apiCall(`/organization/project/${projectId}/strategy/overview/`);
+
+                addResult('✅ Overview API', {
+                    project_name: data.project.project_name,
+                    project_code: data.project.project_code,
+                    total_items: data.summary.total_items,
+                    total_amount: data.summary.total_amount,
+                    items_with_users: data.summary.items_with_assigned_users,
+                });
+
+                setStatus('✅ Overview API - Success');
+                return data;
+            } catch (error) {
+                addResult('❌ Overview API Failed', { error: error.message }, true);
+                setStatus('❌ Overview API - Failed', true);
+                throw error;
+            }
+        }
+
+        async function testItems() {
+            try {
+                setStatus('Testing Items API...');
+                const { projectId } = getConfig();
+
+                const data = await apiCall(`/organization/project/${projectId}/strategy/items/?limit=5`);
+
+                if (data.items && data.items.length > 0) {
+                    firstItemId = data.items[0].project_item_id;
+                }
+
+                addResult('✅ Items API', {
+                    total: data.total,
+                    returned: data.items.length,
+                    first_item: data.items[0] ? {
+                        item_code: data.items[0].item_code,
+                        item_name: data.items[0].item_name,
+                        quantity: data.items[0].quantity,
+                        rate: data.items[0].rate,
+                        assigned_users: data.items[0].assigned_users.length,
+                    } : null,
+                });
+
+                setStatus('✅ Items API - Success');
+                return data;
+            } catch (error) {
+                addResult('❌ Items API Failed', { error: error.message }, true);
+                setStatus('❌ Items API - Failed', true);
+                throw error;
+            }
+        }
+
+        async function testUpdateItem() {
+            try {
+                if (!firstItemId) {
+                    await testItems();
+                }
+
+                if (!firstItemId) {
+                    throw new Error('No items available to update');
+                }
+
+                setStatus('Testing Update Item API...');
+                const { projectId } = getConfig();
+
+                const testRate = 999.99;
+                const testQuantity = 50;
+
+                const data = await apiCall(
+                    `/organization/project/${projectId}/strategy/items/${firstItemId}/`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({
+                            rate: testRate,
+                            quantity: testQuantity,
+                        }),
+                    }
+                );
+
+                addResult('✅ Update Item API', {
+                    message: data.message,
+                    updated_rate: data.item.rate,
+                    updated_quantity: data.item.quantity,
+                    calculated_amount: data.item.amount,
+                });
+
+                setStatus('✅ Update Item API - Success');
+                return data;
+            } catch (error) {
+                addResult('❌ Update Item API Failed', { error: error.message }, true);
+                setStatus('❌ Update Item API - Failed', true);
+                throw error;
+            }
+        }
+
+        async function testUsers() {
+            try {
+                setStatus('Testing Users API...');
+                const { projectId } = getConfig();
+
+                const data = await apiCall(`/organization/project/${projectId}/strategy/users/`);
+
+                if (data.users && data.users.length > 0) {
+                    firstUserId = data.users[0].user_id;
+                }
+
+                addResult('✅ Users API', {
+                    total: data.total,
+                    users: data.users.map(u => ({
+                        name: u.name,
+                        email: u.email,
+                        role: u.role,
+                    })),
+                });
+
+                setStatus('✅ Users API - Success');
+                return data;
+            } catch (error) {
+                addResult('❌ Users API Failed', { error: error.message }, true);
+                setStatus('❌ Users API - Failed', true);
+                throw error;
+            }
+        }
+
+        async function testVendors() {
+            try {
+                setStatus('Testing Vendors API...');
+                const { projectId } = getConfig();
+
+                const data = await apiCall(`/organization/project/${projectId}/strategy/vendors/`);
+
+                addResult('✅ Vendors API', {
+                    total: data.total,
+                    vendors: data.vendors.slice(0, 3).map(v => ({
+                        name: v.vendor_name,
+                        code: v.vendor_code,
+                        active: v.active,
+                    })),
+                });
+
+                setStatus('✅ Vendors API - Success');
+                return data;
+            } catch (error) {
+                addResult('❌ Vendors API Failed', { error: error.message }, true);
+                setStatus('❌ Vendors API - Failed', true);
+                throw error;
+            }
+        }
+
+        async function testCategories() {
+            try {
+                setStatus('Testing Categories API...');
+                const { projectId } = getConfig();
+
+                const data = await apiCall(`/organization/project/${projectId}/strategy/categories/`);
+
+                addResult('✅ Categories API', {
+                    total: data.total,
+                    categories: data.categories.map(c => ({
+                        name: c.category_name,
+                        item_count: c.item_count,
+                        color: c.color,
+                    })),
+                });
+
+                setStatus('✅ Categories API - Success');
+                return data;
+            } catch (error) {
+                addResult('❌ Categories API Failed', { error: error.message }, true);
+                setStatus('❌ Categories API - Failed', true);
+                throw error;
+            }
+        }
+
+        async function testBulkAssign() {
+            try {
+                if (!firstItemId) {
+                    await testItems();
+                }
+                if (!firstUserId) {
+                    await testUsers();
+                }
+
+                if (!firstItemId || !firstUserId) {
+                    throw new Error('Need both item and user to test bulk assign');
+                }
+
+                setStatus('Testing Bulk Assign API...');
+                const { projectId } = getConfig();
+
+                const data = await apiCall(
+                    `/organization/project/${projectId}/strategy/bulk-assign/`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            assignments: [
+                                {
+                                    project_item_id: firstItemId,
+                                    user_ids: [firstUserId],
+                                    action: 'replace',
+                                },
+                            ],
+                        }),
+                    }
+                );
+
+                addResult('✅ Bulk Assign API', {
+                    updated: data.updated,
+                    failed: data.failed,
+                    errors: data.errors,
+                });
+
+                setStatus('✅ Bulk Assign API - Success');
+                return data;
+            } catch (error) {
+                addResult('❌ Bulk Assign API Failed', { error: error.message }, true);
+                setStatus('❌ Bulk Assign API - Failed', true);
+                throw error;
+            }
+        }
+
+        async function runAllTests() {
+            document.getElementById('results').innerHTML = '';
+            const tests = [
+                { name: 'Overview', fn: testOverview },
+                { name: 'Items', fn: testItems },
+                { name: 'Users', fn: testUsers },
+                { name: 'Vendors', fn: testVendors },
+                { name: 'Categories', fn: testCategories },
+                { name: 'Update Item', fn: testUpdateItem },
+                { name: 'Bulk Assign', fn: testBulkAssign },
+            ];
+
+            let passed = 0;
+            let failed = 0;
+
+            for (const test of tests) {
+                try {
+                    await test.fn();
+                    passed++;
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Delay between tests
+                } catch (error) {
+                    failed++;
+                }
+            }
+
+            addResult(`\n🏁 ALL TESTS COMPLETE`, {
+                total: tests.length,
+                passed,
+                failed,
+                success_rate: `${((passed / tests.length) * 100).toFixed(1)}%`,
+            });
+
+            setStatus(`Tests Complete: ${passed}/${tests.length} passed`, failed > 0);
+        }
+    </script>
+</body>
+</html>
