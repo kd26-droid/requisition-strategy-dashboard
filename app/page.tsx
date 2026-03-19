@@ -3486,8 +3486,19 @@ export default function ProcurementDashboard() {
     )
   }
 
+  // Detect if opened from requisitions context
+  const isRequisitionMode = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).has('requisition_ids')
+    : false
+
   // Handle back button click
   const handleBackClick = () => {
+    if (isRequisitionMode) {
+      // Running inside Factwise iframe — tell parent to close the overlay
+      window.parent.postMessage({ type: 'REQUISITION_STRATEGY_CLOSE' }, '*')
+      return
+    }
+
     // Check if opened from popup (sessionStorage)
     const returnUrl = typeof window !== 'undefined' ? sessionStorage.getItem('returnUrl') : null
 
@@ -3532,7 +3543,7 @@ export default function ProcurementDashboard() {
             >
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
-            Back to Project
+            {isRequisitionMode ? 'Back to Inbound Dashboard' : 'Back to Project'}
           </Button>
         </div>
       </div>
