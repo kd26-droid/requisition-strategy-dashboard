@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import { LineChart, Line, BarChart, Bar, ComposedChart, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Label as RechartsLabel, LabelList } from 'recharts'
 import { Tooltip as UiTooltip, TooltipContent as UiTooltipContent, TooltipTrigger as UiTooltipTrigger } from "@/components/ui/tooltip"
 import { SettingsDialog, SettingsPanel, AppSettings, buildDefaultSettings, MappingId, PriceSource } from "@/components/settings-dialog"
-import { getProjectId, getProjectItems, getProjectOverview, getProjectUsers, updateProjectItem, bulkAssignUsers, notifyItemsAssigned, notifyItemUpdated, getProjectTags, updateItemTags, getDigikeyJobStatus, getMouserJobStatus, type ProjectItem } from '@/lib/api'
+import { getProjectId, getProjectItems, getProjectOverview, getProjectUsers, updateProjectItem, bulkAssignUsers, notifyItemsAssigned, notifyItemUpdated, getProjectTags, updateItemTags, getDigikeyJobStatus, getMouserJobStatus, getRequisitionItems, getRequisitionIds, type ProjectItem } from '@/lib/api'
 import { AutoAssignUsersPopover, AutoFillPricesPopover, AutoAssignActionsPopover } from "@/components/autoassign-popovers"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -378,27 +378,16 @@ export default function ProcurementDashboard() {
     "itemId",
     "description",
     "internalNotes",
-    "bom",
     "quantity",
     "unit",
     "category",
-    "projectManager",
-    "rfqAssignee",
-    "quoteAssignee",
+    "erpCode",
+    "mpn",
+    "cpn",
+    "hsn",
     "action",
-    "assignedTo",
-    "dueDate",
-    "vendor",
-    "unitPrice",
-    "source",
-    "pricePO",
-    "priceContract",
-    "priceQuote",
-    "priceDigikey",
-    "priceMouser",
-    "priceEXIM",
   ])
-  const [hiddenColumns, setHiddenColumns] = useState<string[]>(["customer", "pricePO", "priceContract", "priceQuote", "priceEXIM"]) // Hide customer + hardcoded module columns by default
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>([])
   const [savedViews, setSavedViews] = useState<{ [key: string]: { order: string[]; hidden: string[] } }>({})
   const [currentView, setCurrentView] = useState("default")
   const [draggedColumn, setDraggedColumn] = useState<string | null>(null)
@@ -423,28 +412,15 @@ export default function ProcurementDashboard() {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     itemId: 130,
     description: 280,
-    internalNotes: 140,
-    bom: 140,
+    internalNotes: 180,
     quantity: 80,
     unit: 60,
     category: 128,
-    projectManager: 130,
-    rfqAssignee: 130,
-    quoteAssignee: 130,
-    action: 80,
-    assignedTo: 144,
-    dueDate: 100,
-    vendor: 144,
-    unitPrice: 100,
-    source: 96,
-    pricePO: 88,
-    priceContract: 88,
-    priceQuote: 88,
-    priceDigikey: 88,
-    priceMouser: 88,
-    priceEXIM: 88,
-    totalPrice: 128,
-    customer: 120,
+    erpCode: 110,
+    mpn: 110,
+    cpn: 110,
+    hsn: 90,
+    action: 120,
   })
 
   const [isResizing, setIsResizing] = useState(false)
@@ -643,169 +619,77 @@ export default function ProcurementDashboard() {
     }
     loadingStartedRef.current = true
 
-    async function loadProjectData() {
+    async function loadRequisitionData() {
       try {
         setLoading(true)
-        const projectId = getProjectId()
+        const requisitionIds = getRequisitionIds()
 
-        if (!projectId) {
-          console.warn('No project_id in URL, using empty data')
+        if (!requisitionIds.length) {
+          console.warn('No requisition_ids in URL, using empty data')
           setLineItems([])
           setLoading(false)
           return
         }
 
-        console.log('[Dashboard] Fetching data for project:', projectId)
+        console.log('[Dashboard] Fetching items for requisitions:', requisitionIds)
 
-        // Fetch overview, users, and tags first (fast queries)
-        const [overviewResponse, usersResponse, tagsResponse] = await Promise.all([
-          getProjectOverview(projectId),
-          getProjectUsers(projectId),
-          getProjectTags(projectId)
-        ])
+        const response = await getRequisitionItems(requisitionIds, { itemsPerPage: 500 })
+        const rawItems = response.data || []
 
-        // Load items in smaller chunks to avoid timeout
-        // Start with first 100 items for immediate display
-        // IMPORTANT: Skip pricing jobs on initial load - we'll trigger them after all data is loaded
-        const initialItemsResponse = await getProjectItems(projectId, { limit: 100, offset: 0, skip_pricing_jobs: true })
-        console.log('[Dashboard] Initial load:', initialItemsResponse.items.length, 'items of', initialItemsResponse.total)
-
-        // Set project data
-        setProjectData({
-          name: overviewResponse.project.project_name,
-          id: overviewResponse.project.project_code,
-          status: overviewResponse.project.status,
-          created: overviewResponse.project.validity_from || '',
-          deadline: overviewResponse.project.deadline || '',
-          customer: overviewResponse.project.customer_name || '',
-        })
-
-        console.log('[Dashboard] Project:', overviewResponse.project.project_name)
-
-        // Set users data
-        setProjectUsers(usersResponse.users)
-        console.log('[Dashboard] Loaded', usersResponse.users.length, 'users:', usersResponse.users.map(u => `${u.name} (${u.email})`))
-
-        // Set project-level role columns (same for all items)
-        const pmNames = (usersResponse.project_managers || []).map(u => u.name).join('; ')
-        const rfqNames = (usersResponse.rfq_responsible_users || []).map(u => u.name).join('; ')
-        const quoteNames = (usersResponse.quote_responsible_users || []).map(u => u.name).join('; ')
-        setProjectManagers(pmNames)
-        setRfqAssignees(rfqNames)
-        setQuoteAssignees(quoteNames)
-        setRfqResponsibleUsers(usersResponse.rfq_responsible_users || [])
-        setQuoteResponsibleUsers(usersResponse.quote_responsible_users || [])
-        console.log('[Dashboard] Roles — PM:', pmNames, '| RFQ:', rfqNames, '| Quote:', quoteNames)
-
-        // Build user → roles map for settings display
-        const rolesMap: Record<string, string[]> = {}
-        ;(usersResponse.project_managers || []).forEach(u => {
-          if (!rolesMap[u.name]) rolesMap[u.name] = []
-          rolesMap[u.name].push('PM')
-        })
-        ;(usersResponse.rfq_responsible_users || []).forEach(u => {
-          if (!rolesMap[u.name]) rolesMap[u.name] = []
-          if (!rolesMap[u.name].includes('RFQ Assignee')) rolesMap[u.name].push('RFQ Assignee')
-        })
-        ;(usersResponse.quote_responsible_users || []).forEach(u => {
-          if (!rolesMap[u.name]) rolesMap[u.name] = []
-          if (!rolesMap[u.name].includes('Quote Assignee')) rolesMap[u.name].push('Quote Assignee')
-        })
-        setUserRolesMap(rolesMap)
-
-        // Store available enterprise users for role assignment dropdowns
-        if (usersResponse.available_users) {
-          setAvailableUsers(usersResponse.available_users)
-          console.log('[Dashboard] Available users for assignment:', usersResponse.available_users.length)
-        }
-
-        // Set available tags (ALL organization-level tags from backend)
-        setAvailableTags(tagsResponse.tags || [])
-        console.log('[Dashboard] Available tags:', tagsResponse.total, 'tags:', tagsResponse.tags)
-
-        // LOG: Check for duplicates from backend
-        console.log('[Dashboard] Raw items from backend:', initialItemsResponse.items.length)
-        console.log('[Dashboard] Item codes:', initialItemsResponse.items.map((item: ProjectItem) => item.item_code))
-
-        // Check for duplicate item_codes
-        const itemCodes = initialItemsResponse.items.map((item: ProjectItem) => item.item_code)
-        const duplicateCodes = itemCodes.filter((code, index) => itemCodes.indexOf(code) !== index)
-        if (duplicateCodes.length > 0) {
-          console.warn('[Dashboard] ⚠️ DUPLICATE ITEM CODES FROM BACKEND:', duplicateCodes)
-        }
-
-        // LOG: Verify tags and custom_tags from backend
-        console.log('[Dashboard] Tags and BOM info received from API:')
-        initialItemsResponse.items.slice(0, 5).forEach((item: ProjectItem) => {
-          console.log(`  ${item.item_code}:`, {
-            tags: item.tags || [],
-            custom_tags: item.custom_tags || [],
-            bom_info: item.bom_info
-          })
-        })
-
-        // Extract all unique spec names for dynamic columns
+        // Extract all unique spec names from attributes
         const specNamesSet = new Set<string>()
-        initialItemsResponse.items.forEach(item => {
-          item.specifications?.forEach(spec => {
-            specNamesSet.add(spec.spec_name)
+        rawItems.forEach((item: any) => {
+          ;(item.attributes || []).forEach((attr: any) => {
+            specNamesSet.add(attr.attribute_name)
           })
         })
         const uniqueSpecNames = Array.from(specNamesSet).sort()
         setSpecColumns(uniqueSpecNames)
-        console.log('[Dashboard] Found', uniqueSpecNames.length, 'unique specifications:', uniqueSpecNames)
 
-        // Extract all unique custom identification names for dynamic columns
-        const customIdNamesSet = new Set<string>()
-        initialItemsResponse.items.forEach(item => {
-          item.custom_identifications?.forEach(id => {
-            customIdNamesSet.add(id.identification_name)
+        // Transform to dashboard format
+        const transformed = rawItems.map((item: any, index: number) => {
+          const info = item.item_information || {}
+          const baseItem: any = {
+            id: index + 1,
+            requisition_item_id: item.requisition_item_id,
+            requisition_id: item.requisition,
+            itemId: info.item_code || '',
+            description: info.item_name || info.custom_item_name || '',
+            internalNotes: item.attribute_information?.internal_notes || '',
+            quantity: item.quantity || '',
+            unit: item.measurement_unit_details?.measurement_unit_abbreviation || '',
+            category: (item.tags || []).join(', ') || 'Uncategorized',
+            erpCode: info.ERP_item_code || '',
+            mpn: info.MPN_item_code || '',
+            cpn: info.CPN_item_code || '',
+            hsn: info.HSN_item_code || '',
+            action: '',
+            rfqAssigneeName: '',
+            quoteAssigneeName: '',
+          }
+
+          // Dynamic spec columns
+          uniqueSpecNames.forEach((specName: string) => {
+            const attr = (item.attributes || []).find((a: any) => a.attribute_name === specName)
+            const val = attr?.attribute_values?.[0]
+            const unit = val?.measurement_unit?.measurement_unit_abbreviation || ''
+            baseItem[`spec_${specName.replace(/\s+/g, '_')}`] = val ? `${val.value}${unit ? ' ' + unit : ''}` : '-'
           })
+
+          return baseItem
         })
-        const uniqueCustomIdNames = Array.from(customIdNamesSet).sort()
-        setCustomIdColumns(uniqueCustomIdNames)
-        console.log('[Dashboard] Found', uniqueCustomIdNames.length, 'unique custom identifications:', uniqueCustomIdNames)
 
-        // Store exchange rates for currency conversion
-        if (initialItemsResponse.exchange_rates) {
-          setExchangeRates(initialItemsResponse.exchange_rates)
-          console.log('[Dashboard] Loaded exchange rates:', Object.keys(initialItemsResponse.exchange_rates).length, 'currencies')
-        }
-
-        // Store dynamic internal notes column name from API
-        const notesColName = initialItemsResponse.internal_notes_column_name || 'Internal Notes'
-        setInternalNotesLabel(notesColName)
-        console.log('[Dashboard] Internal notes column name:', notesColName)
-
-        // Transform API data using shared helper
-        const itemsWithConvertedPricing = initialItemsResponse.items.map((item: ProjectItem, index: number) =>
-          transformApiItem(item, index, initialItemsResponse.exchange_rates || {}, uniqueSpecNames, uniqueCustomIdNames)
-        )
-
-        console.log('[Dashboard] Loaded', itemsWithConvertedPricing.length, 'items')
-
-        setLineItems(itemsWithConvertedPricing)
+        console.log('[Dashboard] Loaded', transformed.length, 'requisition items')
+        setLineItems(transformed)
         setLoading(false)
-
-        // Load remaining items in background if there are more
-        const totalItems = initialItemsResponse.total
-        if (totalItems > 100) {
-          console.log(`[Dashboard] Loading remaining ${totalItems - 100} items in background...`)
-          loadRemainingItems(projectId, initialItemsResponse.exchange_rates || {}, uniqueSpecNames, totalItems, uniqueCustomIdNames)
-        } else {
-          // All items loaded initially - trigger pricing jobs
-          setAllItemsLoaded(true)
-          console.log(`[Dashboard] All ${totalItems} items loaded, triggering pricing jobs...`)
-          triggerPricingJobs(projectId)
-        }
       } catch (error) {
-        console.error('[Dashboard] Error loading data:', error)
+        console.error('[Dashboard] Error loading requisition data:', error)
         setLineItems([])
         setLoading(false)
       }
     }
 
-    loadProjectData()
+    loadRequisitionData()
   }, [])
 
   // Transform a raw API item into the dashboard format
@@ -2936,29 +2820,17 @@ export default function ProcurementDashboard() {
 
   // Build column labels dynamically with spec columns
   const columnLabels: Record<string, string> = {
-    customer: "Customer",
     itemId: "Item ID",
     description: "Description",
     internalNotes: internalNotesLabel,
-    bom: "BOM",
     quantity: "Qty",
     unit: "Unit",
     category: "Tag",
-    projectManager: "Requisition Manager",
-    rfqAssignee: "RFQ Assignee",
-    quoteAssignee: "Quote Assignee",
+    erpCode: "ERP Code",
+    mpn: "MPN",
+    cpn: "CPN",
+    hsn: "HSN",
     action: "Action",
-    assignedTo: "Assigned",
-    dueDate: "Due Date",
-    vendor: "Vendor",
-    pricePO: "PO Price",
-    priceContract: "Contract",
-    priceQuote: "Quote",
-    priceDigikey: "Digi-Key",
-    priceMouser: "Mouser",
-    priceEXIM: "EXIM",
-    source: "Source",
-    unitPrice: "Price",
   }
 
   // Add dynamic spec column labels + default widths
