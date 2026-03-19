@@ -1728,7 +1728,7 @@ export default function ProcurementDashboard() {
 
     // Continue with remaining columns
     headers.push(
-      'Project Manager',
+      'Requisition Manager',
       'RFQ Assignee',
       'Quote Assignee',
       'Action',
@@ -2110,7 +2110,7 @@ export default function ProcurementDashboard() {
       console.error('[Manual Assign] No project ID found')
       toast({
         title: "Error",
-        description: "Project ID not found",
+        description: "Requisition ID not found",
         variant: "destructive",
       })
       return
@@ -2208,7 +2208,7 @@ export default function ProcurementDashboard() {
       console.error('[Edit Rate/Qty] No project ID found')
       toast({
         title: "Error",
-        description: "Project ID not found",
+        description: "Requisition ID not found",
         variant: "destructive",
       })
       return
@@ -2671,7 +2671,7 @@ export default function ProcurementDashboard() {
       console.error('[Edit] No project ID found')
       toast({
         title: "Error",
-        description: "Project ID not found",
+        description: "Requisition ID not found",
         variant: "destructive",
       })
       return
@@ -2944,7 +2944,7 @@ export default function ProcurementDashboard() {
     quantity: "Qty",
     unit: "Unit",
     category: "Tag",
-    projectManager: "Project Manager",
+    projectManager: "Requisition Manager",
     rfqAssignee: "RFQ Assignee",
     quoteAssignee: "Quote Assignee",
     action: "Action",
@@ -3553,7 +3553,7 @@ export default function ProcurementDashboard() {
           <div className="mb-4">
             {/* Project Information - spans 2 columns on large screens */}
             <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Procurement Strategy</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Requisition Strategy</h1>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -3570,7 +3570,7 @@ export default function ProcurementDashboard() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-0">
             {/* Project Information - spans exactly half the width */}
             <div className="bg-gray-50 rounded-lg p-3">
-              <h3 className="text-base font-semibold text-gray-900 mb-3">Project Information</h3>
+              <h3 className="text-base font-semibold text-gray-900 mb-3">Requisition Information</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <span className="text-xs text-gray-500">Name:</span>
