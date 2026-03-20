@@ -29,7 +29,8 @@ import {
   Link2,
   Building2,
   Globe,
-  Filter
+  Filter,
+  Users
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -152,8 +153,8 @@ type ActionFormula = {
 }
 
 // Criteria builder types
-type CriteriaField = 'Purpose' | 'Item ID Type' | 'Source' | 'Date' | 'Price' | 'Quantity' | 'Vendor' | 'Tag'
-type CriteriaOperator = 'is' | 'is not' | 'before' | 'after' | '=' | '>' | '<' | '>=' | '<='
+type CriteriaField = 'Tag' | 'Item ID' | 'Description' | 'Quantity' | 'Pending Qty' | 'Desired Price' | 'RFQ Assignee' | 'PO Assignee' | 'MPN' | 'ERP Code' | 'CPN' | 'HSN' | 'Requisition ID'
+type CriteriaOperator = 'is' | 'is not' | 'contains' | '=' | '>' | '<' | '>=' | '<='
 export type ActionCriterion = {
   id: string
   conjunction: 'WHERE' | 'AND' | 'OR'
@@ -358,8 +359,8 @@ export function SettingsDialog({ open, onOpenChange, allTags, allCustomers, curr
           <Tabs defaultValue={initialTab} className="h-full flex flex-col">
             <TabsList className="mx-12 mt-8 grid w-fit grid-cols-3 h-14 bg-slate-100">
               <TabsTrigger value="users" className="flex items-center gap-3 px-8 text-base font-medium">
-                <Building2 className="h-5 w-5" />
-                Customer
+                <Users className="h-5 w-5" />
+                Users
               </TabsTrigger>
               <TabsTrigger value="prices" className="flex items-center gap-3 px-8 text-base font-medium">
                 <DollarSign className="h-5 w-5" />
@@ -371,7 +372,7 @@ export function SettingsDialog({ open, onOpenChange, allTags, allCustomers, curr
               </TabsTrigger>
             </TabsList>
 
-            {/* Customer Tab */}
+            {/* Users Tab */}
             <TabsContent value="users" className="flex-1 px-12 py-8 overflow-y-auto">
               <div className="space-y-12">
 
@@ -383,9 +384,9 @@ export function SettingsDialog({ open, onOpenChange, allTags, allCustomers, curr
                     <div className="flex items-start gap-4">
                       <Link2 className="h-6 w-6 text-slate-600 mt-1" />
                       <div>
-                        <CardTitle className="text-2xl font-semibold text-slate-900">Link Tags to Customers</CardTitle>
+                        <CardTitle className="text-2xl font-semibold text-slate-900">Link Tags to Users</CardTitle>
                         <CardDescription className="text-lg mt-2 text-slate-600">
-                          Create assignment mappings by connecting tags with specific customers
+                          Create assignment mappings by connecting tags with specific users
                         </CardDescription>
                       </div>
                     </div>
@@ -434,10 +435,10 @@ export function SettingsDialog({ open, onOpenChange, allTags, allCustomers, curr
                         </ScrollArea>
                       </div>
 
-                      {/* Customer Selection */}
+                      {/* User Selection */}
                       <div className="space-y-6">
                         <div className="flex items-center justify-between">
-                          <Label className="text-xl font-semibold text-slate-900">Available Customers</Label>
+                          <Label className="text-xl font-semibold text-slate-900">Available Users</Label>
                           <Badge variant="secondary" className="text-sm px-3 py-1">
                             {selectedCustomers.length} selected
                           </Badge>
@@ -446,7 +447,7 @@ export function SettingsDialog({ open, onOpenChange, allTags, allCustomers, curr
                         <div className="relative">
                           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
                           <Input
-                            placeholder="Search customers..."
+                            placeholder="Search users..."
                             value={customerSearch}
                             onChange={(e) => setCustomerSearch(e.target.value)}
                             className="pl-12 h-12 text-base border-slate-300"
@@ -476,65 +477,63 @@ export function SettingsDialog({ open, onOpenChange, allTags, allCustomers, curr
                       </div>
                     </div>
 
+                    {/* Link buttons */}
+                    <div className="flex gap-4 pt-2">
+                      <Button variant="outline" className="flex-1" disabled={selectedTags.length === 0 || selectedCustomers.length === 0} onClick={() => linkTagsToCustomersFor('rfqAssigneeMap')}>
+                        <Link2 className="h-5 w-5 mr-2" />Link as RFQ Assignee
+                      </Button>
+                      <Button variant="outline" className="flex-1" disabled={selectedTags.length === 0 || selectedCustomers.length === 0} onClick={() => linkTagsToCustomersFor('quoteAssigneeMap')}>
+                        <Link2 className="h-5 w-5 mr-2" />Link as PO Assignee
+                      </Button>
+                    </div>
+
+                    {/* Current Mappings */}
+                    {(Object.keys(local.users.rfqAssigneeMap).length > 0 || Object.keys(local.users.quoteAssigneeMap).length > 0) && (
+                      <div className="pt-4 space-y-4">
+                        <Label className="text-base font-semibold text-slate-900">Current Mappings</Label>
+                        <div className="grid grid-cols-2 gap-8">
+                          {Object.keys(local.users.rfqAssigneeMap).length > 0 && (
+                            <div className="space-y-2">
+                              <Label className="text-sm text-slate-500">RFQ Assignee</Label>
+                              {Object.entries(local.users.rfqAssigneeMap).map(([tag, customers]) => (
+                                <div key={tag} className="flex items-center justify-between p-3 border rounded-lg bg-white">
+                                  <div className="flex flex-wrap gap-1">
+                                    <Badge variant="outline" className="text-xs">{tag}</Badge>
+                                    <span className="text-xs text-slate-400 mx-1">→</span>
+                                    {customers.map(c => <Badge key={c} variant="secondary" className="text-xs">{c}</Badge>)}
+                                  </div>
+                                  <Button variant="ghost" size="sm" onClick={() => removeTagMapping(tag, 'rfqAssigneeMap')} className="h-7 w-7 p-0 hover:bg-red-50 hover:text-red-600">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {Object.keys(local.users.quoteAssigneeMap).length > 0 && (
+                            <div className="space-y-2">
+                              <Label className="text-sm text-slate-500">PO Assignee</Label>
+                              {Object.entries(local.users.quoteAssigneeMap).map(([tag, customers]) => (
+                                <div key={tag} className="flex items-center justify-between p-3 border rounded-lg bg-white">
+                                  <div className="flex flex-wrap gap-1">
+                                    <Badge variant="outline" className="text-xs">{tag}</Badge>
+                                    <span className="text-xs text-slate-400 mx-1">→</span>
+                                    {customers.map(c => <Badge key={c} variant="secondary" className="text-xs">{c}</Badge>)}
+                                  </div>
+                                  <Button variant="ghost" size="sm" onClick={() => removeTagMapping(tag, 'quoteAssigneeMap')} className="h-7 w-7 p-0 hover:bg-red-50 hover:text-red-600">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                   </CardContent>
                 </Card>
                 </div>
 
-                {/* Output Section */}
-                <div>
-                  <h2 className="text-2xl font-semibold text-slate-900 mb-6">Output</h2>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      {/* RFQ Assignee */}
-                      <div className="space-y-4">
-                        <Label className="text-lg font-semibold text-slate-900">RFQ Assignee</Label>
-                        {Object.entries(local.users.rfqAssigneeMap).map(([tag, customers]) => (
-                          <div key={tag} className="p-4 border border-slate-200 rounded-lg bg-white hover:shadow-md transition-shadow">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="text-base font-semibold mb-2 text-slate-900">{tag}</div>
-                                <div className="flex flex-wrap gap-2">
-                                  {customers.map(c => (
-                                    <Badge key={c} variant="secondary" className="text-sm px-3 py-1">{c}</Badge>
-                                  ))}
-                                </div>
-                              </div>
-                              <Button variant="ghost" size="sm" onClick={() => removeTagMapping(tag, 'rfqAssigneeMap')} className="ml-3 h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                        <Button variant="outline" className="w-full" disabled={selectedTags.length === 0 || selectedCustomers.length === 0} onClick={() => linkTagsToCustomersFor('rfqAssigneeMap')}>
-                          <Link2 className="h-5 w-5 mr-3" />Link selected Tags & Customers
-                        </Button>
-                      </div>
-
-                      {/* Quote Assignee */}
-                      <div className="space-y-4">
-                        <Label className="text-lg font-semibold text-slate-900">Quote Assignee</Label>
-                        {Object.entries(local.users.quoteAssigneeMap).map(([tag, customers]) => (
-                          <div key={tag} className="p-4 border border-slate-200 rounded-lg bg-white hover:shadow-md transition-shadow">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="text-base font-semibold mb-2 text-slate-900">{tag}</div>
-                                <div className="flex flex-wrap gap-2">
-                                  {customers.map(c => (
-                                    <Badge key={c} variant="secondary" className="text-sm px-3 py-1">{c}</Badge>
-                                  ))}
-                                </div>
-                              </div>
-                              <Button variant="ghost" size="sm" onClick={() => removeTagMapping(tag, 'quoteAssigneeMap')} className="ml-3 h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                        <Button variant="outline" className="w-full" disabled={selectedTags.length === 0 || selectedCustomers.length === 0} onClick={() => linkTagsToCustomersFor('quoteAssigneeMap')}>
-                          <Link2 className="h-5 w-5 mr-3" />Link selected Tags & Customers
-                        </Button>
-                      </div>
-                  </div>
-                </div>
               </div>
             </TabsContent>
 
@@ -865,6 +864,7 @@ type RoleUser = { user_id: string; name: string; email: string }
 export function SettingsPanel({
   allTags,
   allCustomers,
+  allItemIds = [],
   availableUsers = [],
   rfqResponsibleUsers = [],
   quoteResponsibleUsers = [],
@@ -875,6 +875,7 @@ export function SettingsPanel({
 }: {
   allTags: string[]
   allCustomers: string[]
+  allItemIds?: string[]
   availableUsers?: RoleUser[]
   rfqResponsibleUsers?: RoleUser[]
   quoteResponsibleUsers?: RoleUser[]
@@ -1027,7 +1028,7 @@ export function SettingsPanel({
         <Tabs defaultValue={initialTab} className="h-full flex flex-col">
           <TabsList className="mx-10 mt-6 grid w-fit grid-cols-3 h-12 bg-slate-100">
             <TabsTrigger value="users" className="flex items-center gap-2 px-6 text-sm font-medium">
-              <Building2 className="h-4 w-4" /> Customer
+              <Users className="h-4 w-4" /> Users
             </TabsTrigger>
             <TabsTrigger value="prices" className="flex items-center gap-2 px-6 text-sm font-medium">
               <DollarSign className="h-4 w-4" /> Prices
@@ -1037,7 +1038,7 @@ export function SettingsPanel({
             </TabsTrigger>
           </TabsList>
 
-          {/* Customer Tab */}
+          {/* Users Tab */}
           <TabsContent value="users" className="flex-1 px-10 py-6 overflow-y-auto">
             <div className="space-y-8">
               {/* Input */}
@@ -1066,12 +1067,12 @@ export function SettingsPanel({
                   </Card>
 
                   <Card>
-                    <CardHeader><CardTitle>Customer</CardTitle></CardHeader>
+                    <CardHeader><CardTitle>Users</CardTitle></CardHeader>
                     <CardContent>
                       <div className="space-y-3">
                         <div className="relative">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder="Search customers..." value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} className="pl-10" />
+                          <Input placeholder="Search users..." value={customerSearch} onChange={(e) => setCustomerSearch(e.target.value)} className="pl-10" />
                         </div>
                         <ScrollArea className="h-56 border rounded-md p-2">
                           <div className="space-y-2">
@@ -1089,164 +1090,59 @@ export function SettingsPanel({
                 </div>
               </div>
 
-              {/* Output */}
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">Output</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <Card>
-                    <CardHeader><CardTitle>RFQ Assignee</CardTitle></CardHeader>
-                    <CardContent>
-                      {selectedTags.length === 0 ? (
-                        <p className="text-center text-muted-foreground py-6 text-sm border border-dashed rounded-lg">Select a tag to assign RFQ users</p>
-                      ) : (
-                        <>
-                          <div className="flex flex-wrap gap-1 mb-3">
-                            {selectedTags.map(t => (<Badge key={t} variant="default" className="text-xs">{t}</Badge>))}
-                          </div>
-                          <ScrollArea className="h-48 border rounded-md p-2">
-                            <div className="space-y-2">
-                              {availableUsers.map(user => {
-                                const isChecked = selectedTags.every(tag => (local.users.rfqAssigneeMap[tag] || []).includes(user.user_id))
-                                return (
-                                  <div key={user.user_id} className="flex items-center space-x-2">
-                                    <Checkbox
-                                      id={`rfq-${user.user_id}`}
-                                      checked={isChecked}
-                                      onCheckedChange={() => {
-                                        setLocal(prev => {
-                                          const newMap = { ...prev.users.rfqAssigneeMap }
-                                          selectedTags.forEach(tag => {
-                                            const current = newMap[tag] || []
-                                            if (current.includes(user.user_id)) {
-                                              newMap[tag] = current.filter(id => id !== user.user_id)
-                                              if (newMap[tag].length === 0) delete newMap[tag]
-                                            } else {
-                                              newMap[tag] = [...current, user.user_id]
-                                            }
-                                          })
-                                          return { ...prev, users: { ...prev.users, rfqAssigneeMap: newMap } }
-                                        })
-                                      }}
-                                    />
-                                    <Label htmlFor={`rfq-${user.user_id}`} className="text-sm cursor-pointer">{user.name}</Label>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </ScrollArea>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader><CardTitle>Quote Assignee</CardTitle></CardHeader>
-                    <CardContent>
-                      {selectedCustomers.length === 0 ? (
-                        <p className="text-center text-muted-foreground py-6 text-sm border border-dashed rounded-lg">Select a customer to assign Quote users</p>
-                      ) : (
-                        <>
-                          <div className="flex flex-wrap gap-1 mb-3">
-                            {selectedCustomers.map(c => (<Badge key={c} variant="default" className="text-xs">{c}</Badge>))}
-                          </div>
-                          <ScrollArea className="h-48 border rounded-md p-2">
-                            <div className="space-y-2">
-                              {availableUsers.map(user => {
-                                const isChecked = selectedCustomers.every(cust => (local.users.quoteAssigneeMap[cust] || []).includes(user.user_id))
-                                return (
-                                  <div key={user.user_id} className="flex items-center space-x-2">
-                                    <Checkbox
-                                      id={`quote-${user.user_id}`}
-                                      checked={isChecked}
-                                      onCheckedChange={() => {
-                                        setLocal(prev => {
-                                          const newMap = { ...prev.users.quoteAssigneeMap }
-                                          selectedCustomers.forEach(cust => {
-                                            const current = newMap[cust] || []
-                                            if (current.includes(user.user_id)) {
-                                              newMap[cust] = current.filter(id => id !== user.user_id)
-                                              if (newMap[cust].length === 0) delete newMap[cust]
-                                            } else {
-                                              newMap[cust] = [...current, user.user_id]
-                                            }
-                                          })
-                                          return { ...prev, users: { ...prev.users, quoteAssigneeMap: newMap } }
-                                        })
-                                      }}
-                                    />
-                                    <Label htmlFor={`quote-${user.user_id}`} className="text-sm cursor-pointer">{user.name}</Label>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </ScrollArea>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
+              {/* Link buttons */}
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" disabled={selectedTags.length === 0 || selectedCustomers.length === 0} onClick={() => linkTagsToCustomersFor('rfqAssigneeMap')}>
+                  <Link2 className="h-4 w-4 mr-2" />Link as RFQ Assignee
+                </Button>
+                <Button variant="outline" className="flex-1" disabled={selectedTags.length === 0 || selectedCustomers.length === 0} onClick={() => linkTagsToCustomersFor('quoteAssigneeMap')}>
+                  <Link2 className="h-4 w-4 mr-2" />Link as PO Assignee
+                </Button>
               </div>
 
-              {/* Real-time Mapping Preview */}
+              {/* Current Mappings */}
               {(Object.keys(local.users.rfqAssigneeMap).length > 0 || Object.keys(local.users.quoteAssigneeMap).length > 0) && (
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">Current Mappings</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {Object.keys(local.users.rfqAssigneeMap).length > 0 && (
-                    <Card>
-                      <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">RFQ Assignee Mappings</CardTitle></CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          {Object.entries(local.users.rfqAssigneeMap).map(([tag, userIds]) => (
-                            <div key={tag} className="flex items-start justify-between p-2 border rounded-md">
-                              <div>
-                                <Badge variant="outline" className="text-xs mr-2">{tag}</Badge>
-                                <span className="text-xs text-muted-foreground">→</span>
-                                {userIds.map(uid => {
-                                  const u = availableUsers.find(au => au.user_id === uid)
-                                  return <Badge key={uid} variant="secondary" className="text-xs ml-1">{u?.name || uid}</Badge>
-                                })}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-900">Current Mappings</h3>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {Object.keys(local.users.rfqAssigneeMap).length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2"><CardTitle className="text-xs text-muted-foreground">RFQ Assignee</CardTitle></CardHeader>
+                        <CardContent className="space-y-1">
+                          {Object.entries(local.users.rfqAssigneeMap).map(([tag, users]) => (
+                            <div key={tag} className="flex items-center justify-between p-2 border rounded-md">
+                              <div className="flex flex-wrap gap-1">
+                                <Badge variant="outline" className="text-xs">{tag}</Badge>
+                                <span className="text-xs text-muted-foreground mx-1">→</span>
+                                {users.map(u => <Badge key={u} variant="secondary" className="text-xs">{u}</Badge>)}
                               </div>
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-red-50 hover:text-red-600" onClick={() => setLocal(prev => {
-                                const newMap = { ...prev.users.rfqAssigneeMap }
-                                delete newMap[tag]
-                                return { ...prev, users: { ...prev.users, rfqAssigneeMap: newMap } }
-                              })}><Trash2 className="h-3 w-3" /></Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-red-50 hover:text-red-600" onClick={() => removeTagMapping(tag, 'rfqAssigneeMap')}><Trash2 className="h-3 w-3" /></Button>
                             </div>
                           ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-                  {Object.keys(local.users.quoteAssigneeMap).length > 0 && (
-                    <Card>
-                      <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Quote Assignee Mappings</CardTitle></CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          {Object.entries(local.users.quoteAssigneeMap).map(([cust, userIds]) => (
-                            <div key={cust} className="flex items-start justify-between p-2 border rounded-md">
-                              <div>
-                                <Badge variant="outline" className="text-xs mr-2">{cust}</Badge>
-                                <span className="text-xs text-muted-foreground">→</span>
-                                {userIds.map(uid => {
-                                  const u = availableUsers.find(au => au.user_id === uid)
-                                  return <Badge key={uid} variant="secondary" className="text-xs ml-1">{u?.name || uid}</Badge>
-                                })}
+                        </CardContent>
+                      </Card>
+                    )}
+                    {Object.keys(local.users.quoteAssigneeMap).length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2"><CardTitle className="text-xs text-muted-foreground">PO Assignee</CardTitle></CardHeader>
+                        <CardContent className="space-y-1">
+                          {Object.entries(local.users.quoteAssigneeMap).map(([tag, users]) => (
+                            <div key={tag} className="flex items-center justify-between p-2 border rounded-md">
+                              <div className="flex flex-wrap gap-1">
+                                <Badge variant="outline" className="text-xs">{tag}</Badge>
+                                <span className="text-xs text-muted-foreground mx-1">→</span>
+                                {users.map(u => <Badge key={u} variant="secondary" className="text-xs">{u}</Badge>)}
                               </div>
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-red-50 hover:text-red-600" onClick={() => setLocal(prev => {
-                                const newMap = { ...prev.users.quoteAssigneeMap }
-                                delete newMap[cust]
-                                return { ...prev, users: { ...prev.users, quoteAssigneeMap: newMap } }
-                              })}><Trash2 className="h-3 w-3" /></Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-red-50 hover:text-red-600" onClick={() => removeTagMapping(tag, 'quoteAssigneeMap')}><Trash2 className="h-3 w-3" /></Button>
                             </div>
                           ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
                 </div>
-              </div>
               )}
+
             </div>
           </TabsContent>
 
@@ -1334,11 +1230,10 @@ export function SettingsPanel({
             <div className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Action Criteria</CardTitle>
-                  <CardDescription>Build simple WHERE…AND… conditions for assigning actions</CardDescription>
+                  <CardTitle>Action Rules</CardTitle>
+                  <CardDescription>Define conditions on item fields to automatically assign an action (RFQ or PO)</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {/* Criteria rows */}
                   <div className="space-y-3">
                     {(local.actions.criteria || []).map((row, idx) => (
                       <div key={row.id} className="flex flex-wrap items-center gap-2 p-2 rounded border">
@@ -1364,7 +1259,7 @@ export function SettingsPanel({
                           </Select>
                         )}
 
-                        {/* Field */}
+                        {/* Field — only our actual columns */}
                         <Select
                           value={row.field}
                           onValueChange={(v) => setLocal(prev => ({
@@ -1374,18 +1269,23 @@ export function SettingsPanel({
                         >
                           <SelectTrigger className="w-40 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Purpose">Purpose</SelectItem>
-                            <SelectItem value="Item ID Type">Item ID Type</SelectItem>
-                            <SelectItem value="Source">Source</SelectItem>
                             <SelectItem value="Tag">Tag</SelectItem>
-                            <SelectItem value="Date">Date</SelectItem>
-                            <SelectItem value="Price">Price</SelectItem>
+                            <SelectItem value="Item ID">Item ID</SelectItem>
+                            <SelectItem value="Description">Description</SelectItem>
                             <SelectItem value="Quantity">Quantity</SelectItem>
-                            <SelectItem value="Vendor">Vendor</SelectItem>
+                            <SelectItem value="Pending Qty">Pending Qty</SelectItem>
+                            <SelectItem value="Desired Price">Desired Price</SelectItem>
+                            <SelectItem value="RFQ Assignee">RFQ Assignee</SelectItem>
+                            <SelectItem value="PO Assignee">PO Assignee</SelectItem>
+                            <SelectItem value="MPN">MPN</SelectItem>
+                            <SelectItem value="ERP Code">ERP Code</SelectItem>
+                            <SelectItem value="CPN">CPN</SelectItem>
+                            <SelectItem value="HSN">HSN</SelectItem>
+                            <SelectItem value="Requisition ID">Requisition ID</SelectItem>
                           </SelectContent>
                         </Select>
 
-                        {/* Operator */}
+                        {/* Operator — text fields: is/is not/contains; numeric: ≥ ≤ > < = */}
                         <Select
                           value={row.operator}
                           onValueChange={(v) => setLocal(prev => ({
@@ -1393,94 +1293,76 @@ export function SettingsPanel({
                             actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, operator: v as any } : r) }
                           }))}
                         >
-                          <SelectTrigger className="w-24 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="w-28 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            {/* Operators vary by field */}
-                            {(['Purpose','Item ID Type','Source','Vendor','Tag'].includes(row.field) ? (
+                            {(['Quantity', 'Pending Qty', 'Desired Price'].includes(row.field) ? (
                               <>
-                                <SelectItem value="is">is</SelectItem>
-                                <SelectItem value="is not">is not</SelectItem>
-                              </>
-                            ) : row.field === 'Date' ? (
-                              <>
-                                <SelectItem value="before">before</SelectItem>
-                                <SelectItem value="after">after</SelectItem>
-                              </>
-                            ) : (
-                              <>
-                                <SelectItem value=">=">≥</SelectItem>
-                                <SelectItem value="<=">≤</SelectItem>
+                                <SelectItem value=">=">&ge;</SelectItem>
+                                <SelectItem value="<=">&le;</SelectItem>
                                 <SelectItem value=">">{'>'}</SelectItem>
                                 <SelectItem value="<">{'<'}</SelectItem>
                                 <SelectItem value="=">=</SelectItem>
+                              </>
+                            ) : (
+                              <>
+                                <SelectItem value="is">is</SelectItem>
+                                <SelectItem value="is not">is not</SelectItem>
+                                <SelectItem value="contains">contains</SelectItem>
                               </>
                             ))}
                           </SelectContent>
                         </Select>
 
-                        {/* Value editor */}
-                        {row.field === 'Purpose' && (
+                        {/* Value — dropdown for Tag/Item ID/RFQ Assignee/PO Assignee, number input for numeric, text for rest */}
+                        {row.field === 'Item ID' ? (
                           <Select value={row.value} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: v } : r) } }))}>
-                            <SelectTrigger className="w-28 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="w-48 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue placeholder="Select item ID" /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Quote">Quote</SelectItem>
-                              <SelectItem value="PO">PO</SelectItem>
-                              <SelectItem value="Contract">Contract</SelectItem>
-                              <SelectItem value="Event">Event</SelectItem>
+                              {allItemIds.map(id => (<SelectItem key={id} value={id}>{id}</SelectItem>))}
                             </SelectContent>
                           </Select>
-                        )}
-                        {row.field === 'Item ID Type' && (
-                          <Select value={row.value} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: v } : r) } }))}>
-                            <SelectTrigger className="w-24 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="MPN">MPN</SelectItem>
-                              <SelectItem value="CPN">CPN</SelectItem>
-                              <SelectItem value="HSN">HSN</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
-                        {row.field === 'Source' && (
-                          <Select value={row.value} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: v } : r) } }))}>
-                            <SelectTrigger className="w-40 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              {DEFAULT_PRICE_SOURCES.map(s => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                        {row.field === 'Tag' && (
+                        ) : row.field === 'Tag' ? (
                           <Select value={row.value} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: v } : r) } }))}>
                             <SelectTrigger className="w-48 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue placeholder="Select tag" /></SelectTrigger>
                             <SelectContent>
                               {allTags.map(tag => (<SelectItem key={tag} value={tag}>{tag}</SelectItem>))}
                             </SelectContent>
                           </Select>
+                        ) : (row.field === 'RFQ Assignee' || row.field === 'PO Assignee') ? (
+                          <Select value={row.value} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: v } : r) } }))}>
+                            <SelectTrigger className="w-48 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue placeholder="Select user" /></SelectTrigger>
+                            <SelectContent>
+                              {allCustomers.map(user => (<SelectItem key={user} value={user}>{user}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            className="w-40 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"
+                            type={['Quantity', 'Pending Qty', 'Desired Price'].includes(row.field) ? 'number' : 'text'}
+                            placeholder="Value"
+                            value={row.value}
+                            onChange={(e) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: e.target.value } : r) } }))}
+                          />
                         )}
-                        {row.field === 'Date' && (
-                          <Input type="date" className="w-40 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500" value={row.value} onChange={(e) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: e.target.value } : r) } }))} />
-                        )}
-                        {(row.field === 'Price' || row.field === 'Quantity' || row.field === 'Vendor') && (
+
+                        {/* → THEN assign action */}
+                        {idx === (local.actions.criteria || []).length - 1 && (
                           <>
-                            <Input
-                              className="w-40 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"
-                              placeholder={row.field === 'Vendor' ? 'Enter vendor' : '0'}
-                              value={row.value}
-                              onChange={(e) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: e.target.value } : r) } }))}
-                            />
-                            {row.field === 'Price' && (
-                              <Select value={row.unit || 'USD'} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, unit: v } : r) } }))}>
-                                <SelectTrigger className="w-36 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="USD">USD</SelectItem>
-                                  <SelectItem value="INR">INR</SelectItem>
-                                  <SelectItem value="EUR">EUR</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            )}
+                            <span className="text-sm font-semibold text-gray-600 mx-1">→ THEN</span>
+                            <Select
+                              value={(local.actions as any).assignAction || 'RFQ'}
+                              onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, assignAction: v } as any }))}
+                            >
+                              <SelectTrigger className="w-24 border-2 border-green-300 bg-green-50 hover:border-green-400 focus:border-green-500"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="RFQ">RFQ</SelectItem>
+                                <SelectItem value="PO">PO</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </>
                         )}
 
-                        {/* Remove */}
+                        {/* Remove row */}
                         {idx > 0 && (
                           <Button variant="ghost" size="icon" onClick={() => setLocal(prev => ({
                             ...prev,
@@ -1493,7 +1375,7 @@ export function SettingsPanel({
                     ))}
                   </div>
 
-                  {/* Add Section */}
+                  {/* Add condition */}
                   <div className="mt-3">
                     <button
                       type="button"
@@ -1505,14 +1387,14 @@ export function SettingsPanel({
                           criteria: [...(prev.actions.criteria || []), {
                             id: Date.now().toString(),
                             conjunction: (prev.actions.criteria || []).length === 0 ? 'WHERE' : 'AND',
-                            field: 'Purpose',
+                            field: 'Tag',
                             operator: 'is',
-                            value: 'Quote',
+                            value: '',
                           }],
                         },
                       }))}
                     >
-                      + Add Section
+                      + Add Condition
                     </button>
                   </div>
                 </CardContent>

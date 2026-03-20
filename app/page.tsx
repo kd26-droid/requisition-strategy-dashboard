@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import { LineChart, Line, BarChart, Bar, ComposedChart, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Label as RechartsLabel, LabelList } from 'recharts'
 import { Tooltip as UiTooltip, TooltipContent as UiTooltipContent, TooltipTrigger as UiTooltipTrigger } from "@/components/ui/tooltip"
 import { SettingsDialog, SettingsPanel, AppSettings, buildDefaultSettings, MappingId, PriceSource } from "@/components/settings-dialog"
-import { getProjectId, getProjectItems, getProjectOverview, getProjectUsers, updateProjectItem, bulkAssignUsers, notifyItemsAssigned, notifyItemUpdated, getProjectTags, updateItemTags, getDigikeyJobStatus, getMouserJobStatus, getRequisitionItems, getRequisitionIds, type ProjectItem } from '@/lib/api'
+import { getProjectId, getProjectItems, getProjectOverview, getProjectUsers, updateProjectItem, bulkAssignUsers, notifyItemsAssigned, notifyItemUpdated, getProjectTags, updateItemTags, getDigikeyJobStatus, getMouserJobStatus, getRequisitionItems, getRequisitionIds, getRequisitionMap, getRequisitionUsers, getEntityId, saveStrategyUpdate, type ProjectItem, type StrategyUpdateItem } from '@/lib/api'
 import { AutoAssignUsersPopover, AutoFillPricesPopover, AutoAssignActionsPopover } from "@/components/autoassign-popovers"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -303,7 +303,7 @@ function processItemPricing(item: any, exchangeRates: Record<string, number>) {
   const validPrices = priceOptions.filter(p => p.price > 0);
   const cheapestSource = validPrices.length > 0
     ? validPrices.reduce((min, p) => p.price < min.price ? p : min).source
-    : 'Project';
+    : 'Requisition';
 
   const vendor = item.vendor || ''
 
@@ -333,6 +333,7 @@ export default function ProcurementDashboard() {
     customer: "",
   })
   const [projectUsers, setProjectUsers] = useState<Array<{user_id: string, name: string, email: string, role: string}>>([])
+  const [hasAssignPermission, setHasAssignPermission] = useState(false)
   // Project-level role arrays (same for all items)
   const [projectManagers, setProjectManagers] = useState<string>('')
   const [rfqAssignees, setRfqAssignees] = useState<string>('')
@@ -379,12 +380,15 @@ export default function ProcurementDashboard() {
     "description",
     "internalNotes",
     "quantity",
+    "pendingQty",
     "unit",
+    "desiredPrice",
+    // "poPrice",       // TODO: enable when PO history API is ready
+    // "contractPrice", // TODO: enable when Contract history API is ready
     "category",
-    "erpCode",
-    "mpn",
-    "cpn",
-    "hsn",
+    "rfqAssignee",
+    "poAssignee",
+    "requisitionId",
     "action",
   ])
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([])
@@ -414,12 +418,19 @@ export default function ProcurementDashboard() {
     description: 280,
     internalNotes: 180,
     quantity: 80,
+    pendingQty: 100,
     unit: 60,
+    desiredPrice: 110,
+    // poPrice: 120,       // TODO: enable when PO history API is ready
+    // contractPrice: 130, // TODO: enable when Contract history API is ready
     category: 128,
     erpCode: 110,
     mpn: 110,
     cpn: 110,
     hsn: 90,
+    rfqAssignee: 150,
+    poAssignee: 150,
+    requisitionId: 140,
     action: 120,
   })
 
@@ -632,6 +643,7 @@ export default function ProcurementDashboard() {
         }
 
         console.log('[Dashboard] Fetching items for requisitions:', requisitionIds)
+        const requisitionMap = getRequisitionMap()
 
         const response = await getRequisitionItems(requisitionIds, { itemsPerPage: 500 })
         const rawItems = response.data || []
@@ -646,9 +658,29 @@ export default function ProcurementDashboard() {
         const uniqueSpecNames = Array.from(specNamesSet).sort()
         setSpecColumns(uniqueSpecNames)
 
+        // Detect which code columns have at least one non-empty value
+        const hasErp = rawItems.some((item: any) => item.item_information?.ERP_item_code)
+        const hasMpn = rawItems.some((item: any) => item.item_information?.MPN_item_code)
+        const hasCpn = rawItems.some((item: any) => item.item_information?.CPN_item_code)
+        const hasHsn = rawItems.some((item: any) => item.item_information?.HSN_item_code)
+        const dynamicCodeCols = [
+          ...(hasErp ? ['erpCode'] : []),
+          ...(hasMpn ? ['mpn'] : []),
+          ...(hasCpn ? ['cpn'] : []),
+          ...(hasHsn ? ['hsn'] : []),
+        ]
+        // Insert dynamic code columns before "requisitionId" in columnOrder
+        setColumnOrder(prev => {
+          const base = prev.filter(c => !['erpCode', 'mpn', 'cpn', 'hsn'].includes(c))
+          const insertIdx = base.indexOf('requisitionId')
+          if (insertIdx === -1) return [...base, ...dynamicCodeCols]
+          return [...base.slice(0, insertIdx), ...dynamicCodeCols, ...base.slice(insertIdx)]
+        })
+
         // Transform to dashboard format
         const transformed = rawItems.map((item: any, index: number) => {
           const info = item.item_information || {}
+          const pricing = item.pricing_information || {}
           const baseItem: any = {
             id: index + 1,
             requisition_item_id: item.requisition_item_id,
@@ -657,15 +689,29 @@ export default function ProcurementDashboard() {
             description: info.item_name || info.custom_item_name || '',
             internalNotes: item.attribute_information?.internal_notes || '',
             quantity: item.quantity || '',
+            pendingQty: (() => {
+              const ds: any[] = item.delivery_schedule || []
+              if (!ds.length) return ''
+              const val = ds.reduce((total: number, cur: any) => {
+                return total + ((cur.fulfilment_information?.requisition ?? 0) - (cur.fulfilment_information?.rfq ?? 0))
+              }, 0)
+              return val < 0 ? 0 : val
+            })(),
             unit: item.measurement_unit_details?.measurement_unit_abbreviation || '',
+            desiredPrice: pricing.desired_price ?? '',
+            currencySymbol: pricing.currency_symbol || '₹',
+            currencyCode: pricing.currency_code_abbreviation || '',
+            // poPrice: null,       // TODO: populate from PO history API
+            // contractPrice: null, // TODO: populate from Contract history API
             category: (item.tags || []).join(', ') || 'Uncategorized',
             erpCode: info.ERP_item_code || '',
             mpn: info.MPN_item_code || '',
             cpn: info.CPN_item_code || '',
             hsn: info.HSN_item_code || '',
-            action: '',
-            rfqAssigneeName: '',
-            quoteAssigneeName: '',
+            requisitionId: item.custom_requisition_id || requisitionMap[item.requisition] || item.requisition || '',
+            rfqAssigneeName: (item.rfq_assignee_users || []).map((u: any) => u.name).join('; '),
+            poAssigneeName: (item.po_assignee_users || []).map((u: any) => u.name).join('; '),
+            action: item.strategy_action || '',
           }
 
           // Dynamic spec columns
@@ -690,6 +736,24 @@ export default function ProcurementDashboard() {
     }
 
     loadRequisitionData()
+  }, [])
+
+  // Load requisition strategy users (RFQ Edit + PO Edit)
+  useEffect(() => {
+    async function loadUsers() {
+      const entityId = getEntityId()
+      if (!entityId) return
+      try {
+        const res = await getRequisitionUsers(entityId)
+        const users = res.users || res.available_users || []
+        console.log('[Dashboard] Processing', users.length, 'users from API')
+        setProjectUsers(users.map((u: any) => ({ ...u, role: u.role || '' })))
+        setHasAssignPermission(!!(res as any).has_assign_permission)
+      } catch (err) {
+        console.error('[Dashboard] Failed to load users:', err)
+      }
+    }
+    loadUsers()
   }, [])
 
   // Transform a raw API item into the dashboard format
@@ -1302,27 +1366,25 @@ export default function ProcurementDashboard() {
   const dynamicMetrics = useMemo(() => {
     const totalItems = lineItems.length
 
-    // Calculate total value: sum of (quantity × unit_price)
+    // Calculate total value: sum of (quantity × desired_price)
     const totalValue = lineItems.reduce((sum: number, item: any) => {
-      return sum + (item.quantity * item.unitPrice)
+      const price = parseFloat(item.desiredPrice) || 0
+      const qty = parseFloat(item.quantity) || 0
+      return sum + (qty * price)
     }, 0)
 
-    // Calculate average value per item: total value / number of items
-    const avgPrice = totalItems > 0 ? totalValue / totalItems : 0
+    // Calculate average desired price per item
+    const itemsWithPrice = lineItems.filter((item: any) => parseFloat(item.desiredPrice) > 0)
+    const avgPrice = itemsWithPrice.length > 0
+      ? itemsWithPrice.reduce((sum: number, item: any) => sum + parseFloat(item.desiredPrice), 0) / itemsWithPrice.length
+      : 0
 
-    const totalVendors = lineItems.filter((item: any) => item.vendor && item.vendor.trim() !== "").length
-    const avgVendorsPerItem = totalItems > 0 ? totalVendors / totalItems : 0
-
-    // Determine currency display
-    const currencies = Array.from(new Set(
-      lineItems
-        .map((item: any) => item.currency?.code || item.currency?.symbol)
-        .filter(Boolean)
+    // Determine currency display from pricing_information.currency_symbol
+    const currencySymbols = Array.from(new Set(
+      lineItems.map((item: any) => item.currencySymbol).filter(Boolean)
     ))
-    const hasMultipleCurrencies = currencies.length > 1
-    const currencySymbol = hasMultipleCurrencies
-      ? '?'
-      : (lineItems[0]?.currency?.symbol || '$')
+    const hasMultipleCurrencies = currencySymbols.length > 1
+    const currencySymbol = hasMultipleCurrencies ? '?' : (currencySymbols[0] || '₹')
 
     // Format value with proper K/M/B suffix
     const formatValue = (value: number) => {
@@ -1371,38 +1433,23 @@ export default function ProcurementDashboard() {
         valueColor: "text-blue-900",
         iconColor: "text-blue-500",
       },
-      {
-        label: "Avg Vendors/Item",
-        value: avgVendorsPerItem.toFixed(1),
-        icon: Building2,
-        trendIcon: TrendingUp,
-        trendValue: "+12.4%",
-        bgColor: "bg-gradient-to-br from-orange-50 to-orange-100",
-        textColor: "text-orange-600",
-        valueColor: "text-orange-900",
-        iconColor: "text-orange-500",
-      },
     ]
   }, [lineItems])
 
   const filterMetrics = useMemo(() => {
     return {
       prices: {
-        pending: lineItems.filter((item: any) => item.unitPrice === 0).length,
-        identified: lineItems.filter((item: any) => item.unitPrice > 0).length
+        pending: lineItems.filter((item: any) => !parseFloat(item.desiredPrice)).length,
+        identified: lineItems.filter((item: any) => parseFloat(item.desiredPrice) > 0).length
       },
       actions: {
         pending: lineItems.filter((item: any) => !item.action || item.action.trim() === "").length,
         defined: lineItems.filter((item: any) => item.action && item.action.trim() !== "").length
       },
       users: {
-        pending: lineItems.filter((item: any) => !item.assignedTo || item.assignedTo.trim() === "").length,
-        assigned: lineItems.filter((item: any) => item.assignedTo && item.assignedTo.trim() !== "").length
+        pending: lineItems.filter((item: any) => !item.rfqAssigneeName && !item.poAssigneeName).length,
+        assigned: lineItems.filter((item: any) => item.rfqAssigneeName || item.poAssigneeName).length
       },
-      vendors: {
-        missing: lineItems.filter((item: any) => !item.vendor || item.vendor.trim() === "").length,
-        assigned: lineItems.filter((item: any) => item.vendor && item.vendor.trim() !== "").length
-      }
     }
   }, [lineItems])
 
@@ -1440,21 +1487,18 @@ export default function ProcurementDashboard() {
           return (item[key] || '').toLowerCase().includes(term)
         })
 
-      const vendorMatch = vendorFilter.length === 0 || vendorFilter.includes(item.vendor || "tbd")
       const actionMatch = actionFilter.length === 0 || actionFilter.includes(item.action)
-      const assignedMatch = assignedFilter.length === 0 || assignedFilter.includes(item.assignedTo || "unassigned")
 
       // Category filter: check if ANY of the item's tags match the selected categories
       const itemTags = item.category ? String(item.category).split(',').map((t: string) => t.trim()) : []
       const categoryMatch = categoryFilter.length === 0 || itemTags.some((tag: string) => categoryFilter.includes(tag))
 
-      return matchesSearch && vendorMatch && actionMatch && assignedMatch && categoryMatch
+      return matchesSearch && actionMatch && categoryMatch
     })
 
     if (activeFilter) {
       switch (activeFilter) {
         case "prices":
-          filtered = filtered.filter((item: any) => (reverseFilter ? item.unitPrice > 0 : item.unitPrice === 0))
           break
         case "actions":
           filtered = filtered.filter((item: any) =>
@@ -1464,16 +1508,8 @@ export default function ProcurementDashboard() {
           )
           break
         case "users":
-          filtered = filtered.filter((item: any) =>
-            reverseFilter
-              ? item.assignedTo && item.assignedTo.trim() !== ""
-              : !item.assignedTo || item.assignedTo.trim() === "",
-          )
           break
         case "vendors":
-          filtered = filtered.filter((item: any) =>
-            reverseFilter ? item.vendor && item.vendor.trim() !== "" : !item.vendor || item.vendor.trim() === "",
-          )
           break
       }
     }
@@ -1587,156 +1623,57 @@ export default function ProcurementDashboard() {
       if (tags.length > maxTags) maxTags = tags.length
     })
 
-    // Build CSV headers - start with base columns
+    // Build CSV headers for requisition items
     const headers: string[] = [
       'Item ID',
       'Description',
       internalNotesLabel,
-      'Is Alternate',
-      'Alternate Parent Name',
-      'Has Alternates',
-      'Alternate Names',
-      'BOM Name',
-      'BOM Slab Qty',
-      'Item Qty',
+      'Qty',
+      'Pending Qty',
       'Unit',
-      'Event Code',
-      'Event Qty',
+      'Desired Price',
     ]
-
-    // Add dynamic tag columns (Tag 1, Tag 2, etc.)
-    for (let i = 1; i <= maxTags; i++) {
-      headers.push(`Tag ${i}`)
-    }
-
-    // Continue with remaining columns
-    headers.push(
-      'Requisition Manager',
-      'RFQ Assignee',
-      'Quote Assignee',
-      'Action',
-      'Assigned To',
-      'Due Date',
-      'Vendor',
-      'Currency',
-      'Unit Price',
-      'Total Price',
-      'Source (Cheapest)',
-      'PO Price',
-      'Contract Price',
-      'Quote Price',
-      'EXIM Price',
-    )
-
-    // Only add Digikey columns if API keys are configured
-    if (digikeyEnabled) {
-      headers.push('Digi-Key Unit Price', 'Digi-Key Qty Price', 'Digi-Key Stock', 'Digi-Key Status')
-    }
-    // Only add Mouser columns if API keys are configured
-    if (mouserEnabled) {
-      headers.push('Mouser Unit Price', 'Mouser Qty Price', 'Mouser Stock', 'Mouser Status')
-    }
 
     // Add dynamic spec columns
     specColumns.forEach(specName => {
       headers.push(specName)
     })
 
-    // Add dynamic custom identification columns
-    customIdColumns.forEach(idName => {
-      headers.push(idName)
+    // Add dynamic tag columns (Tag 1, Tag 2, etc.)
+    for (let i = 1; i <= maxTags; i++) {
+      headers.push(`Tag ${i}`)
+    }
+
+    // Add dynamic code columns
+    const exportCodeCols: Array<{ key: string; label: string }> = []
+    filteredAndSortedItems.forEach((item: any) => {
+      if (item.erpCode && !exportCodeCols.find(c => c.key === 'erpCode')) exportCodeCols.push({ key: 'erpCode', label: 'ERP Code' })
+      if (item.mpn && !exportCodeCols.find(c => c.key === 'mpn')) exportCodeCols.push({ key: 'mpn', label: 'MPN' })
+      if (item.cpn && !exportCodeCols.find(c => c.key === 'cpn')) exportCodeCols.push({ key: 'cpn', label: 'CPN' })
+      if (item.hsn && !exportCodeCols.find(c => c.key === 'hsn')) exportCodeCols.push({ key: 'hsn', label: 'HSN' })
     })
+    exportCodeCols.forEach(c => headers.push(c.label))
+
+    headers.push('Requisition ID', 'Action')
 
     // Build CSV rows - one row per API item (no fanning over bom_usages/event_usages)
     const rows: string[][] = []
 
     filteredAndSortedItems.forEach((item: any) => {
-      const digikeyDetails = getDistributorPrice(item.digikey_pricing)
-      const mouserDetails = getDistributorPrice(item.mouser_pricing)
-
       // Parse tags for this item
       const itemTags = item.category && item.category !== 'Uncategorized'
         ? String(item.category).split(',').map((t: string) => t.trim()).filter(Boolean)
         : []
 
-      // Get alternate info
-      const altInfo = item.alternate_info || {}
-      const alternateNames = (altInfo.alternates || [])
-        .map((alt: any) => alt.item_name || '')
-        .filter(Boolean)
-        .join('; ')
-
-      // BOM info from bom_info (each API item already represents one BOM source)
-      const bomName = item.bom_info?.bom_name || ''
-      const bomSlabQty = item.bom_slab_quantity ?? item.bom_info?.bom_slab_quantity ?? ''
-
-      // Event info — use first event_usage entry (all entries for one slab are same event)
-      const eventUsages = item.event_usages || []
-      const eventCode = eventUsages?.[0]?.event_code || ''
-      const eventQty = item.event_quantity ?? ''
-
       const row: string[] = [
         escapeCSV(item.itemId),
         escapeCSV(item.description),
         escapeCSV(item.internalNotes || ''),
-        altInfo.is_alternate ? 'Yes' : 'No',
-        escapeCSV(altInfo.alternate_parent_name || ''),
-        altInfo.has_alternates ? 'Yes' : 'No',
-        escapeCSV(alternateNames),
-        escapeCSV(bomName),
-        bomSlabQty !== '' ? String(bomSlabQty) : '',
         escapeCSV(item.quantity),
+        escapeCSV(item.pendingQty ?? ''),
         escapeCSV(item.unit),
-        escapeCSV(eventCode),
-        eventQty !== '' && eventQty !== null ? String(eventQty) : '',
+        formatPrice(item.desiredPrice),
       ]
-
-      // Add individual tag columns
-      for (let t = 0; t < maxTags; t++) {
-        row.push(escapeCSV(itemTags[t] || ''))
-      }
-
-      // Add role columns (PM is project-level, RFQ/Quote are per-item from auto-assign)
-      row.push(
-        escapeCSV(projectManagers),
-        escapeCSV(item.rfqAssigneeName || ''),
-        escapeCSV(item.quoteAssigneeName || ''),
-      )
-
-      // Add remaining columns
-      row.push(
-        escapeCSV(item.action),
-        escapeCSV(item.assignedTo),
-        escapeCSV(item.dueDate),
-        escapeCSV(item.vendor),
-        escapeCSV(item.currency?.code || ''),
-        formatPrice(item.unitPrice),
-        formatPrice(item.totalPrice),
-        escapeCSV(item.source),
-        formatPrice(item.pricePO),
-        formatPrice(item.priceContract),
-        formatPrice(item.priceQuote),
-        formatPrice(item.priceEXIM),
-      )
-
-      // Only add Digikey values if enabled
-      if (digikeyEnabled) {
-        row.push(
-          digikeyDetails.unitPrice,
-          digikeyDetails.quantityPrice,
-          digikeyDetails.stock,
-          escapeCSV(digikeyDetails.status),
-        )
-      }
-      // Only add Mouser values if enabled
-      if (mouserEnabled) {
-        row.push(
-          mouserDetails.unitPrice,
-          mouserDetails.quantityPrice,
-          mouserDetails.stock,
-          escapeCSV(mouserDetails.status),
-        )
-      }
 
       // Add dynamic spec values
       specColumns.forEach(specName => {
@@ -1744,11 +1681,18 @@ export default function ProcurementDashboard() {
         row.push(escapeCSV(item[key] || ''))
       })
 
-      // Add dynamic custom identification values
-      customIdColumns.forEach(idName => {
-        const key = `customId_${idName.replace(/\s+/g, '_')}`
-        row.push(escapeCSV(item[key] || ''))
-      })
+      // Add individual tag columns
+      for (let t = 0; t < maxTags; t++) {
+        row.push(escapeCSV(itemTags[t] || ''))
+      }
+
+      // Add dynamic code columns
+      exportCodeCols.forEach(c => row.push(escapeCSV(item[c.key] || '')))
+
+      row.push(
+        escapeCSV(item.requisitionId || ''),
+        escapeCSV(item.action || ''),
+      )
 
       rows.push(row)
     })
@@ -1767,9 +1711,7 @@ export default function ProcurementDashboard() {
 
     // Generate filename with project name and date
     const date = new Date().toISOString().split('T')[0]
-    const projectName = projectData.name || 'procurement'
-    const sanitizedName = projectName.replace(/[^a-z0-9]/gi, '_').substring(0, 30)
-    link.download = `${sanitizedName}_export_${date}.csv`
+    link.download = `requisition_items_export_${date}.csv`
 
     document.body.appendChild(link)
     link.click()
@@ -1864,19 +1806,48 @@ export default function ProcurementDashboard() {
     return uid // fallback to ID if not found
   }
 
+  // Save strategy assignments to backend + notify Factwise
+  const handleSaveStrategy = async () => {
+    try {
+      const items: StrategyUpdateItem[] = lineItems.map((item: any) => {
+        const resolveIds = (names: string): string[] => {
+          if (!names) return []
+          return names.split(';').map((n: string) => n.trim()).filter(Boolean).map((name: string) => {
+            const user = projectUsers.find(u => u.name === name)
+            return user ? user.user_id : name
+          })
+        }
+        return {
+          requisition_item_id: item.requisition_item_id,
+          rfq_assignee_user_ids: resolveIds(item.rfqAssigneeName),
+          po_assignee_user_ids: resolveIds(item.poAssigneeName),
+          action: item.action || null,
+        }
+      })
+
+      await saveStrategyUpdate(items)
+
+      // Notify Factwise parent
+      window.parent.postMessage({ type: 'REQUISITION_STRATEGY_UPDATE', items }, '*')
+
+      toast({ title: "Saved", description: "Strategy assignments saved successfully." })
+    } catch (err) {
+      console.error('[Save Strategy] Error:', err)
+      toast({ title: "Save failed", description: "Could not save assignments. Please try again.", variant: "destructive" })
+    }
+  }
+
   // Auto Assign Users Handler — fills RFQ Assignee & Quote Assignee columns per item
   const handleAutoAssignUsers = async (scope: 'all' | 'unassigned' | 'selected') => {
     try {
       const rfqMap = currentSettings.users.rfqAssigneeMap || {}
-      const quoteMap = currentSettings.users.quoteAssigneeMap || {}
+      const poMap = currentSettings.users.quoteAssigneeMap || {}
 
-      console.log('[Auto-Assign] RFQ map (tag→user_ids):', rfqMap)
-      console.log('[Auto-Assign] Quote map (customer→user_ids):', quoteMap)
 
-      if (Object.keys(rfqMap).length === 0 && Object.keys(quoteMap).length === 0) {
+      if (Object.keys(rfqMap).length === 0 && Object.keys(poMap).length === 0) {
         toast({
           title: "No Mappings",
-          description: "No RFQ or Quote assignee mappings found. Configure them in Settings first.",
+          description: "No RFQ or PO assignee mappings found. Configure them in Settings first.",
           variant: "destructive",
         })
         return
@@ -1887,76 +1858,86 @@ export default function ProcurementDashboard() {
       if (scope === 'selected') {
         itemIdsToProcess = new Set(selectedItems)
       } else if (scope === 'unassigned') {
-        // "unassigned" = items where both RFQ and Quote assignee columns are empty
         itemIdsToProcess = new Set(
           lineItems
-            .filter((item: any) => !item.rfqAssigneeName && !item.quoteAssigneeName)
+            .filter((item: any) => !item.rfqAssigneeName && !item.poAssigneeName)
             .map((item: any) => item.id)
         )
       } else {
         itemIdsToProcess = new Set(lineItems.map((item: any) => item.id))
       }
 
-      console.log(`[Auto-Assign] Processing ${itemIdsToProcess.size} items with scope: ${scope}`)
 
       let updated = 0
       let skipped = 0
 
-      // Build updates for all matching items in one pass
-      setLineItems((prevItems: any[]) => prevItems.map((item: any) => {
+      const updatedItems = lineItems.map((item: any) => {
         if (!itemIdsToProcess.has(item.id)) return item
 
-        // --- RFQ Assignee: match item tags → rfqAssigneeMap ---
-        const rfqUserIds = new Set<string>()
         const itemTags = Array.isArray(item.category)
           ? (item.category as string[])
           : String(item.category || '').split(',').map((s: string) => s.trim()).filter(Boolean)
 
+        // --- RFQ Assignee: match item tags → rfqAssigneeMap ---
+        const rfqUserIds = new Set<string>()
         itemTags.forEach((tag: string) => {
-          const mappedUserIds = rfqMap[tag]
-          if (mappedUserIds) {
-            mappedUserIds.forEach((uid: string) => rfqUserIds.add(uid))
-          }
+          ;(rfqMap[tag] || []).forEach((uid: string) => rfqUserIds.add(uid))
         })
 
-        // --- Quote Assignee: match project customer → quoteAssigneeMap ---
-        const quoteUserIds = new Set<string>()
-        const customerName = projectData.customer || ''
-        if (customerName && quoteMap[customerName]) {
-          quoteMap[customerName].forEach((uid: string) => quoteUserIds.add(uid))
-        }
+        // --- PO Assignee: match item tags → poAssigneeMap ---
+        const poUserIds = new Set<string>()
+        itemTags.forEach((tag: string) => {
+          ;(poMap[tag] || []).forEach((uid: string) => poUserIds.add(uid))
+        })
 
-        // Skip if no matches at all
-        if (rfqUserIds.size === 0 && quoteUserIds.size === 0) {
+        if (rfqUserIds.size === 0 && poUserIds.size === 0) {
           skipped++
           return item
         }
 
-        // Resolve user IDs to names
         const rfqNames = Array.from(rfqUserIds).map(resolveUserName).join('; ')
-        const quoteNames = Array.from(quoteUserIds).map(resolveUserName).join('; ')
+        const poNames = Array.from(poUserIds).map(resolveUserName).join('; ')
 
-        // Only update fields that have new values
         const newRfq = rfqNames || item.rfqAssigneeName
-        const newQuote = quoteNames || item.quoteAssigneeName
+        const newPo = poNames || item.poAssigneeName
 
-        if (newRfq !== item.rfqAssigneeName || newQuote !== item.quoteAssigneeName) {
+        if (newRfq !== item.rfqAssigneeName || newPo !== item.poAssigneeName) {
           updated++
         } else {
           skipped++
           return item
         }
 
-        console.log(`[Auto-Assign] Item ${item.itemId}: RFQ="${rfqNames}", Quote="${quoteNames}"`)
-
         return {
           ...item,
           rfqAssigneeName: newRfq,
-          quoteAssigneeName: newQuote,
+          poAssigneeName: newPo,
         }
-      }))
+      })
 
-      console.log(`[Auto-Assign] Done: ${updated} updated, ${skipped} skipped`)
+      setLineItems(updatedItems)
+
+
+      // Auto-save to backend immediately
+      if (updated > 0) {
+        const saveItems: StrategyUpdateItem[] = updatedItems.map((item: any) => {
+          const resolveIds = (names: string): string[] => {
+            if (!names) return []
+            return names.split(';').map((n: string) => n.trim()).filter(Boolean).map((name: string) => {
+              const user = projectUsers.find((u: any) => u.name === name)
+              return user ? user.user_id : name
+            })
+          }
+          return {
+            requisition_item_id: item.requisition_item_id,
+            rfq_assignee_user_ids: resolveIds(item.rfqAssigneeName),
+            po_assignee_user_ids: resolveIds(item.poAssigneeName),
+            action: item.action || null,
+          }
+        })
+        await saveStrategyUpdate(saveItems)
+        window.parent.postMessage({ type: 'REQUISITION_STRATEGY_UPDATE', items: saveItems }, '*')
+      }
 
       toast({
         title: "Users Assigned Successfully",
@@ -2413,7 +2394,7 @@ export default function ProcurementDashboard() {
         : null
       const unitPrice = cheapest ? cheapest.price : 0
       const totalPrice = Math.round(unitPrice * item.quantity * 100) / 100
-      const cheapestSource = cheapest ? cheapest.source : 'Project'
+      const cheapestSource = cheapest ? cheapest.source : 'Requisition'
 
       const vendor = item.vendor || ''
 
@@ -2424,8 +2405,16 @@ export default function ProcurementDashboard() {
     document.body.click()
   }
 
-  // Assign Actions Handler
-  const handleAssignActions = (scope: 'all' | 'unassigned' | 'selected') => {
+  // Assign Actions Handler — evaluates criteria from Settings → Actions tab
+  const handleAssignActions = async (scope: 'all' | 'unassigned' | 'selected') => {
+    const criteria: any[] = currentSettings.actions?.criteria || []
+    const assignAction: string = (currentSettings.actions as any)?.assignAction || 'RFQ'
+
+    if (criteria.length === 0) {
+      toast({ title: "No Rules", description: "Configure action rules in Settings → Actions first.", variant: "destructive" })
+      return
+    }
+
     let idsToUpdate: Set<number>
     if (scope === 'unassigned') {
       idsToUpdate = new Set(lineItems.filter((item: any) => !item.action || item.action.trim() === '').map((i: any) => i.id))
@@ -2435,19 +2424,105 @@ export default function ProcurementDashboard() {
       idsToUpdate = new Set(lineItems.map((i: any) => i.id))
     }
 
+    // Map our column names to item fields
+    const getItemValue = (item: any, field: string): string[] | string => {
+      switch (field) {
+        case 'Tag': return String(item.category || '').split(',').map((t: string) => t.trim()).filter(Boolean)
+        case 'Item ID': return item.itemId || ''
+        case 'Description': return item.description || ''
+        case 'Quantity': return String(item.quantity ?? '')
+        case 'Pending Qty': return String(item.pendingQty ?? '')
+        case 'Desired Price': return String(item.desiredPrice ?? '')
+        case 'RFQ Assignee': return item.rfqAssigneeName || ''
+        case 'PO Assignee': return item.poAssigneeName || ''
+        case 'MPN': return item.mpn || ''
+        case 'ERP Code': return item.erpCode || ''
+        case 'CPN': return item.cpn || ''
+        case 'HSN': return item.hsn || ''
+        case 'Requisition ID': return item.requisitionId || ''
+        default: return ''
+      }
+    }
+
+    const evaluateCriteria = (item: any): boolean => {
+      // Evaluate each criterion; combine with AND/OR
+      let result: boolean | null = null
+      for (const row of criteria) {
+        const itemVal = getItemValue(item, row.field)
+        const ruleVal = (row.value || '').toLowerCase()
+        const isNumeric = ['Quantity', 'Pending Qty', 'Desired Price'].includes(row.field)
+        let match = false
+        if (isNumeric) {
+          const a = parseFloat(Array.isArray(itemVal) ? itemVal[0] : itemVal)
+          const b = parseFloat(ruleVal)
+          if (row.operator === '>=') match = a >= b
+          else if (row.operator === '<=') match = a <= b
+          else if (row.operator === '>') match = a > b
+          else if (row.operator === '<') match = a < b
+          else if (row.operator === '=') match = a === b
+        } else if (Array.isArray(itemVal)) {
+          // Tag field — check against each tag individually
+          const tags = itemVal.map((t: string) => t.toLowerCase())
+          if (row.operator === 'is') match = tags.includes(ruleVal)
+          else if (row.operator === 'is not') match = !tags.includes(ruleVal)
+          else if (row.operator === 'contains') match = tags.some((t: string) => t.includes(ruleVal))
+        } else {
+          const a = itemVal.toLowerCase()
+          if (row.operator === 'is') match = a === ruleVal
+          else if (row.operator === 'is not') match = a !== ruleVal
+          else if (row.operator === 'contains') match = a.includes(ruleVal)
+        }
+
+        if (result === null) {
+          result = match
+        } else if (row.conjunction === 'OR') {
+          result = result || match
+        } else {
+          result = result && match
+        }
+      }
+      return result ?? false
+    }
+
+
+    let assigned = 0
     const updatedItems = lineItems.map((item: any) => {
       if (!idsToUpdate.has(item.id)) return item
-
-      // If Price is N/A (0 or missing) → Event, else → Quote
-      const hasPrice = item.unitPrice && item.unitPrice > 0
-      return { ...item, action: hasPrice ? 'Quote' : 'Event' }
+      if (evaluateCriteria(item)) {
+        assigned++
+        return { ...item, action: assignAction }
+      }
+      return item
     })
 
     setLineItems(updatedItems)
 
+    // Auto-save to backend
+    if (assigned > 0) {
+      const saveItems: StrategyUpdateItem[] = updatedItems.map((item: any) => {
+        const resolveIds = (names: string): string[] => {
+          if (!names) return []
+          return names.split(';').map((n: string) => n.trim()).filter(Boolean).map((name: string) => {
+            const user = projectUsers.find((u: any) => u.name === name)
+            return user ? user.user_id : name
+          })
+        }
+        return {
+          requisition_item_id: item.requisition_item_id,
+          rfq_assignee_user_ids: resolveIds(item.rfqAssigneeName),
+          po_assignee_user_ids: resolveIds(item.poAssigneeName),
+          action: item.action || null,
+        }
+      })
+      await saveStrategyUpdate(saveItems)
+      window.parent.postMessage({ type: 'REQUISITION_STRATEGY_UPDATE', items: saveItems }, '*')
+    }
+
     toast({
       title: "Actions Assigned",
-      description: `Assigned actions to ${idsToUpdate.size} item(s)`,
+      description: assigned > 0
+        ? `Assigned "${assignAction}" to ${assigned} item(s) matching your rules`
+        : `No items matched the configured rules`,
     })
 
     document.body.click()
@@ -2823,12 +2898,19 @@ export default function ProcurementDashboard() {
     description: "Description",
     internalNotes: internalNotesLabel,
     quantity: "Qty",
+    pendingQty: "Pending Qty",
     unit: "Unit",
+    desiredPrice: "Desired Price",
+    // poPrice: "PO Price",           // TODO: enable when PO history API is ready
+    // contractPrice: "Contract Price", // TODO: enable when Contract history API is ready
     category: "Tag",
     erpCode: "ERP Code",
     mpn: "MPN",
     cpn: "CPN",
     hsn: "HSN",
+    rfqAssignee: "RFQ Assignee",
+    poAssignee: "PO Assignee",
+    requisitionId: "Requisition ID",
     action: "Action",
   }
 
@@ -3350,7 +3432,7 @@ export default function ProcurementDashboard() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto"></div>
-          <div className="text-xl font-semibold text-gray-700">Loading Project Data...</div>
+          <div className="text-xl font-semibold text-gray-700">Loading Requisition Data...</div>
           <div className="text-sm text-gray-500">Fetching items from Factwise</div>
         </div>
       </div>
@@ -3414,7 +3496,7 @@ export default function ProcurementDashboard() {
             >
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
-            {isRequisitionMode ? 'Back to Inbound Dashboard' : 'Back to Project'}
+            {isRequisitionMode ? 'Back to Inbound Dashboard' : 'Back to Requisition'}
           </Button>
         </div>
       </div>
@@ -3426,44 +3508,36 @@ export default function ProcurementDashboard() {
             <div className="flex items-center justify-between">
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Requisition Strategy</h1>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  className="flex items-center gap-2 bg-transparent"
-                  title="Settings"
-                  onClick={() => setSettingsOpen(true)}
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
+                {hasAssignPermission && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="flex items-center gap-2 bg-transparent"
+                      title="Settings"
+                      onClick={() => setSettingsOpen(true)}
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-0">
-            {/* Project Information - spans exactly half the width */}
+            {/* Requisition Information */}
             <div className="bg-gray-50 rounded-lg p-3">
               <h3 className="text-base font-semibold text-gray-900 mb-3">Requisition Information</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <span className="text-xs text-gray-500">Name:</span>
-                  <p className="font-medium text-gray-900 text-sm">{projectData.name}</p>
+                  <span className="text-xs text-gray-500">Requisition IDs:</span>
+                  <p className="font-medium text-gray-900 text-sm">
+                    {[...new Set(lineItems.map((i: any) => i.requisitionId).filter(Boolean))].join(', ') || 'N/A'}
+                  </p>
                 </div>
                 <div>
-                  <span className="text-xs text-gray-500">ID:</span>
-                  <p className="font-medium text-gray-900">{projectData.id}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">Customer:</span>
-                  <p className="font-medium text-gray-900 text-sm">{projectData.customer || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">Status:</span>
-                  <Badge className="ml-1 bg-green-50 text-green-700 border-green-200 text-xs">
-                    {projectData.status}
-                  </Badge>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">Deadline:</span>
-                  <p className="font-medium text-gray-900 text-sm">{projectData.deadline || 'N/A'}</p>
+                  <span className="text-xs text-gray-500">Total Items:</span>
+                  <p className="font-medium text-gray-900">{lineItems.length}</p>
                 </div>
               </div>
             </div>
@@ -3519,9 +3593,9 @@ export default function ProcurementDashboard() {
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-red-900 text-sm">Prices</h3>
+                  <h3 className="font-semibold text-red-900 text-sm">Desired Price</h3>
                   <p className="text-xs text-red-700">
-                    Pending: {filterMetrics.prices.pending} / Identified: {filterMetrics.prices.identified}
+                    Missing: {filterMetrics.prices.pending} / Set: {filterMetrics.prices.identified}
                   </p>
                 </div>
                 <DollarSign className="h-4 w-4 text-red-600 flex-shrink-0" />
@@ -3604,36 +3678,6 @@ export default function ProcurementDashboard() {
               )}
             </div>
 
-            <div
-              className={`p-3 rounded-lg border-2 cursor-pointer transition-all bg-gradient-to-br from-amber-50 to-amber-100 flex-1 min-w-[200px] ${
-                activeFilter === "vendors" ? "border-amber-500 shadow-md" : "border-amber-200 hover:border-amber-300"
-              }`}
-              onClick={() => handleFilterClick("vendors")}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-amber-900 text-sm">Vendors</h3>
-                  <p className="text-xs text-amber-700">
-                    Missing: {filterMetrics.vendors.missing} / Assigned: {filterMetrics.vendors.assigned}
-                  </p>
-                </div>
-                <Building2 className="h-4 w-4 text-amber-600 flex-shrink-0" />
-              </div>
-              {activeFilter === "vendors" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    toggleFilterReverse("vendors")
-                  }}
-                  className="w-full mt-2 bg-white/50 border-amber-300 text-amber-700 hover:bg-white/70 text-xs h-7"
-                >
-                  {reverseFilter ? <ToggleRight className="h-3 w-3 mr-1" /> : <ToggleLeft className="h-3 w-3 mr-1" />}
-                  {reverseFilter ? "Show Missing" : "Show Assigned"}
-                </Button>
-              )}
-            </div>
           </div>
 
           <div className="flex items-center justify-between gap-4 mb-4">
@@ -3653,68 +3697,6 @@ export default function ProcurementDashboard() {
 
             {/* All filters on the right */}
             <div className="flex items-center gap-4">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={`w-40 justify-between ${
-                      vendorFilter.length > 0 && vendorFilter.length < vendorOptions.length
-                        ? "bg-blue-50 border-blue-300 text-blue-700"
-                        : ""
-                    }`}
-                  >
-                    {vendorFilter.length === 0 || vendorFilter.length === vendorOptions.length
-                      ? "All Vendors"
-                      : vendorFilter.length === 1
-                        ? vendorFilter[0] === "tbd"
-                          ? "TBD"
-                          : vendorFilter[0]
-                        : `${vendorFilter.length} selected`}
-                    <ChevronDown className="h-4 w-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-40 p-0">
-                  <div className="p-2 space-y-1">
-                    <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded border-b border-gray-200">
-                      <input
-                        type="checkbox"
-                        checked={vendorFilter.length === vendorOptions.length}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setVendorFilter(vendorOptions.map((v) => (v === 'TBD' ? 'tbd' : v)))
-                          } else {
-                            setVendorFilter([])
-                          }
-                        }}
-                        className="rounded"
-                      />
-                      <span className="text-sm font-medium">Select All</span>
-                    </label>
-                    {vendorOptions.map((vendor) => (
-                      <label
-                        key={vendor}
-                        className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-1 rounded"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={vendorFilter.includes(vendor === "TBD" ? "tbd" : vendor)}
-                          onChange={(e) => {
-                            const value = vendor === "TBD" ? "tbd" : vendor
-                            if (e.target.checked) {
-                              setVendorFilter([...vendorFilter, value])
-                            } else {
-                              setVendorFilter(vendorFilter.filter((v) => v !== value))
-                            }
-                          }}
-                          className="rounded"
-                        />
-                        <span className="text-sm">{vendor}</span>
-                      </label>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
 
               <Popover>
                 <PopoverTrigger asChild>
@@ -3851,7 +3833,7 @@ export default function ProcurementDashboard() {
                     }`}
                   >
                     {categoryFilter.length === 0 || categoryFilter.length === allTags.length
-                      ? "All Categories"
+                      ? "All Tags"
                       : categoryFilter.length === 1
                         ? categoryFilter[0]
                         : `${categoryFilter.length} selected`}
@@ -3904,18 +3886,17 @@ export default function ProcurementDashboard() {
           {/* Second row with action buttons */}
           <div className="flex items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-4">
-              {/* Auto Assign Users */}
-              <Button
-                variant="outline"
-                className="flex items-center gap-2 bg-transparent"
-                onClick={() => {
-                  console.log('Auto Assign Users clicked')
-                  setShowAssignUsersPopup(true)
-                }}
-              >
-                <Users className="h-4 w-4" />
-                Auto Assign Users
-              </Button>
+              {/* Auto Assign Users — only shown if user has REQUISITION_EVENT_ASSIGN permission */}
+              {hasAssignPermission && (
+                <Button
+                  variant="outline"
+                  className="flex items-center gap-2 bg-transparent"
+                  onClick={() => setShowAssignUsersPopup(true)}
+                >
+                  <Users className="h-4 w-4" />
+                  Auto Assign Users
+                </Button>
+              )}
 
               {/* Auto Fill Prices */}
               <Button
@@ -3929,30 +3910,20 @@ export default function ProcurementDashboard() {
                 Auto Fill Prices
               </Button>
 
-              {/* Assign Actions */}
-              <Button
-                variant="outline"
-                className="flex items-center gap-2 bg-transparent"
-                onClick={() => {
-                  console.log('Assign Actions clicked')
-                  setShowAssignActionsPopup(true)
-                }}
-              >
-                <CheckSquare className="h-4 w-4" />
-                Assign Actions
-              </Button>
+              {/* Assign Actions — only shown if user has REQUISITION_EVENT_ASSIGN permission */}
+              {hasAssignPermission && (
+                <Button
+                  variant="outline"
+                  className="flex items-center gap-2 bg-transparent"
+                  onClick={() => {
+                    setShowAssignActionsPopup(true)
+                  }}
+                >
+                  <CheckSquare className="h-4 w-4" />
+                  Assign Actions
+                </Button>
+              )}
 
-              {/* Edit Selected Items */}
-              <Button
-                size="sm"
-                className="bg-green-600 hover:bg-green-700 text-white h-8 flex items-center gap-2"
-                onClick={handleOpenEdit}
-                title="Edit Selected Items"
-                disabled={selectedItems.length === 0}
-              >
-                <Edit className="h-3 w-3" />
-                Edit {selectedItems.length > 0 ? `(${selectedItems.length})` : ''}
-              </Button>
 
               {/* Export CSV Button */}
               <Button
@@ -4487,11 +4458,8 @@ export default function ProcurementDashboard() {
                         )
                       }
 
-                      if (columnKey === "projectManager" || columnKey === "rfqAssignee" || columnKey === "quoteAssignee") {
-                        // Project Manager is project-level; RFQ/Quote Assignee are per-item (filled by auto-assign)
-                        const value = columnKey === "projectManager" ? projectManagers
-                          : columnKey === "rfqAssignee" ? (item.rfqAssigneeName || '')
-                          : (item.quoteAssigneeName || '')
+                      if (columnKey === "projectManager") {
+                        const value = projectManagers
                         return (
                           <td key={columnKey} className="p-2 text-left" style={stickyStyle}>
                             {value ? (
@@ -4559,9 +4527,12 @@ export default function ProcurementDashboard() {
                         )
                       }
 
-                      if (columnKey === "assignedTo") {
-                        const assignedUsersList = item.assignedTo
-                          ? String(item.assignedTo).split(',').map((u: string) => u.trim()).filter(Boolean)
+                      if (columnKey === "assignedTo" || columnKey === "rfqAssignee" || columnKey === "poAssignee") {
+                        const rawVal = columnKey === "rfqAssignee" ? item.rfqAssigneeName
+                          : columnKey === "poAssignee" ? item.poAssigneeName
+                          : item.assignedTo
+                        const assignedUsersList = rawVal
+                          ? String(rawVal).split(',').map((u: string) => u.trim()).filter(Boolean)
                           : []
                         const isMissing = assignedUsersList.length === 0
 
@@ -5087,7 +5058,7 @@ export default function ProcurementDashboard() {
                         return (
                           <td key={columnKey} className="p-2 text-center" style={stickyStyle}>
                             <span className="text-xs font-medium text-gray-900">
-                              Project
+                              Requisition
                             </span>
                           </td>
                         )
@@ -5139,6 +5110,18 @@ export default function ProcurementDashboard() {
                         )
                       }
 
+                      if (columnKey === "desiredPrice") {
+                        const price = parseFloat(item.desiredPrice)
+                        const sym = item.currencySymbol || '₹'
+                        return (
+                          <td key={columnKey} className="p-2 text-right" style={stickyStyle}>
+                            <span className="text-xs text-gray-900">
+                              {!isNaN(price) && price > 0 ? `${sym}${price.toFixed(2)}` : '-'}
+                            </span>
+                          </td>
+                        )
+                      }
+
                       return (
                         <td key={columnKey} className="p-2 text-left" style={stickyStyle}>
                           <span className="text-gray-900 text-xs truncate block" title={String(value || "")}>
@@ -5149,7 +5132,8 @@ export default function ProcurementDashboard() {
                     })}
                     <td className="p-2 text-left">
                       <div className="flex items-center gap-1">
-                        <Button
+                        {/* Graph icon hidden — analytics not available for requisition items */}
+                        {/* <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => {
@@ -5160,7 +5144,7 @@ export default function ProcurementDashboard() {
                           title="View Analytics"
                         >
                           <BarChart3 className="h-3 w-3" />
-                        </Button>
+                        </Button> */}
                       </div>
                     </td>
                   </tr>
@@ -5786,7 +5770,8 @@ export default function ProcurementDashboard() {
             <div className="flex-1 min-h-0">
               <SettingsPanel
                 allTags={allTags}
-                allCustomers={projectData.customer ? [projectData.customer] : []}
+                allCustomers={projectUsers.map(u => u.name)}
+                allItemIds={lineItems.map((it: any) => it.itemId).filter(Boolean)}
                 availableUsers={availableUsers}
                 rfqResponsibleUsers={rfqResponsibleUsers}
                 quoteResponsibleUsers={quoteResponsibleUsers}
@@ -5869,7 +5854,6 @@ export default function ProcurementDashboard() {
             <Button
               type="button"
               onClick={() => {
-                console.log('[DEBUG] Save button clicked - about to call handler')
                 handleManualUserAssignment()
               }}
             >

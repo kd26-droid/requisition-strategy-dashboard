@@ -77,6 +77,18 @@ export function getRequisitionIds(): string[] {
   return raw.split(',').map((id) => id.trim()).filter(Boolean);
 }
 
+export function getRequisitionMap(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  const urlParams = new URLSearchParams(window.location.search);
+  const raw = urlParams.get('requisition_map');
+  if (!raw) return {};
+  try {
+    return JSON.parse(decodeURIComponent(raw));
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Generic API request handler with authentication, timeout, and retry logic
  */
@@ -712,6 +724,40 @@ export async function getProjectUsers(projectId: string): Promise<ProjectUsersRe
   return apiRequest<ProjectUsersResponse>(
     `/organization/project/${projectId}/strategy/users/`
   );
+}
+
+/**
+ * Get users with both RFQ Edit and PO Edit permissions for an entity (requisition strategy)
+ */
+export async function getRequisitionUsers(entityId: string): Promise<ProjectUsersResponse> {
+  return apiRequest<ProjectUsersResponse>(
+    `/organization/entity/${entityId}/requisition/strategy/users/`
+  );
+}
+
+export interface StrategyUpdateItem {
+  requisition_item_id: string;
+  rfq_assignee_user_ids: string[];
+  po_assignee_user_ids: string[];
+  action: string | null;
+}
+
+export async function saveStrategyUpdate(items: StrategyUpdateItem[]): Promise<void> {
+  const entityId = getEntityId();
+  await apiRequest<{ success: boolean }>(
+    `/organization/entity/${entityId}/requisition/strategy/update/`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+      skipSuccessCheck: true,
+    }
+  );
+}
+
+export function getEntityId(): string {
+  if (typeof window === 'undefined') return '';
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('entity_id') || '';
 }
 
 /**
