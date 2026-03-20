@@ -353,6 +353,8 @@ export default function ProcurementDashboard() {
   const loadingStartedRef = useRef(false)
   const [vendorSearchTerm, setVendorSearchTerm] = useState("")
   const [userSearchTerm, setUserSearchTerm] = useState("")
+  // key = `${requisition_item_id}:rfqAssignee` or `...poAssignee`
+  const [openAssigneeDropdown, setOpenAssigneeDropdown] = useState<string | null>(null)
   const [selectedItems, setSelectedItems] = useState<number[]>([])
   const [editingItem, setEditingItem] = useState<any | null>(null)
   const [editingUsers, setEditingUsers] = useState<string[]>([])
@@ -1231,6 +1233,10 @@ export default function ProcurementDashboard() {
       const button = (event.target as Element)?.closest('[title="Show/Hide Columns"]')
       if (columnDropdown && !columnDropdown.contains(event.target as Node) && !button) {
         columnDropdown.classList.add('hidden')
+      }
+      // Close assignee dropdown if clicking outside
+      if (!(event.target as Element)?.closest('[data-assignee-dropdown]')) {
+        setOpenAssigneeDropdown(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -4547,33 +4553,34 @@ export default function ProcurementDashboard() {
                           }
                         }
 
+                        const dropdownKey = `${item.requisition_item_id}:${columnKey}`
+                        const isOpen = openAssigneeDropdown === dropdownKey
+
                         return (
                           <td key={columnKey} className="p-2 text-left" style={stickyStyle}>
-                            <div className="relative group">
-                              {assigned.length === 0 ? (
-                                <span className="text-red-700 text-xs">Unassigned</span>
-                              ) : assigned.length === 1 ? (
-                                <Badge variant="outline" className="text-xs">{assigned[0]}</Badge>
-                              ) : (
-                                <UiTooltip>
-                                  <UiTooltipTrigger>
-                                    <span className="text-blue-600 font-medium text-xs cursor-pointer">
-                                      {assigned.length} assigned
-                                    </span>
-                                  </UiTooltipTrigger>
-                                  <UiTooltipContent side="bottom" align="start">
-                                    <div className="space-y-1">
-                                      {assigned.map((u, i) => (
-                                        <div key={i} className="text-xs">{i + 1}. {u}</div>
-                                      ))}
-                                    </div>
-                                  </UiTooltipContent>
-                                </UiTooltip>
-                              )}
-                              {userPool.length > 0 && (
-                                <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg min-w-[160px] max-h-[200px] overflow-y-auto">
+                            <div className="relative" data-assignee-dropdown="true">
+                              <button
+                                className="flex items-center gap-1 text-left w-full"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setOpenAssigneeDropdown(isOpen ? null : dropdownKey)
+                                }}
+                              >
+                                {assigned.length === 0 ? (
+                                  <span className="text-red-700 text-xs">Unassigned ▾</span>
+                                ) : assigned.length === 1 ? (
+                                  <span className="text-xs border rounded px-1.5 py-0.5 border-gray-300">{assigned[0]} ▾</span>
+                                ) : (
+                                  <span className="text-blue-600 font-medium text-xs">{assigned.length} assigned ▾</span>
+                                )}
+                              </button>
+                              {isOpen && userPool.length > 0 && (
+                                <div
+                                  className="absolute z-[9999] left-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg min-w-[180px] max-h-[220px] overflow-y-auto"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
                                   {userPool.map((userName) => (
-                                    <label key={userName} className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 cursor-pointer">
+                                    <label key={userName} className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 cursor-pointer">
                                       <input
                                         type="checkbox"
                                         checked={assigned.includes(userName)}
