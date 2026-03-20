@@ -5286,25 +5286,15 @@ export default function ProcurementDashboard() {
                 <Button
                   size="sm"
                   className="bg-blue-600 hover:bg-blue-700 text-white h-8"
-                  disabled={actionResultsLoading}
                   onClick={() => {
-                    console.log('Execute action clicked, selected items:', selectedItems)
-                    setActionResultsLoading(true)
-                    setShowActionResultsPopup(true)
-                    setTimeout(() => {
-                      setActionResultsLoading(false)
-                    }, 3000)
+                    if (window.opener) {
+                      window.opener.postMessage({ type: 'STRATEGY_EXECUTE_ACTION' }, '*')
+                    }
+                    window.close()
                   }}
-                  title="Execute Action"
+                  title="Execute Action — opens Create Event in Factwise"
                 >
-                  {actionResultsLoading ? (
-                    <span className="flex items-center gap-2">
-                      <span className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
-                      Executing...
-                    </span>
-                  ) : (
-                    'Execute Action'
-                  )}
+                  Execute Action
                 </Button>
               </div>
             </div>
