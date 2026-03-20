@@ -4507,15 +4507,95 @@ export default function ProcurementDashboard() {
                         )
                       }
 
-                      if (columnKey === "assignedTo" || columnKey === "rfqAssignee" || columnKey === "poAssignee") {
-                        const rawVal = columnKey === "rfqAssignee" ? item.rfqAssigneeName
-                          : columnKey === "poAssignee" ? item.poAssigneeName
-                          : item.assignedTo
+                      if (columnKey === "rfqAssignee" || columnKey === "poAssignee") {
+                        const isRfq = columnKey === "rfqAssignee"
+                        const rawVal = isRfq ? item.rfqAssigneeName : item.poAssigneeName
+                        const userPool = isRfq ? rfqUserNames : poUserNames
+                        const assigned = rawVal
+                          ? String(rawVal).split(';').map((u: string) => u.trim()).filter(Boolean)
+                          : []
+
+                        const toggleUser = async (userName: string) => {
+                          const next = assigned.includes(userName)
+                            ? assigned.filter((u) => u !== userName)
+                            : [...assigned, userName]
+                          const nextStr = next.join('; ')
+                          const updatedItems = lineItems.map((it: any) =>
+                            it.requisition_item_id === item.requisition_item_id
+                              ? { ...it, [isRfq ? 'rfqAssigneeName' : 'poAssigneeName']: nextStr }
+                              : it
+                          )
+                          setLineItems(updatedItems)
+                          try {
+                            const resolveIds = (names: string): string[] => {
+                              if (!names) return []
+                              return names.split(';').map((n) => n.trim()).filter(Boolean).map((name) => {
+                                const user = [...rfqUsers, ...poUsers].find((u) => u.name === name)
+                                return user ? user.user_id : name
+                              })
+                            }
+                            const updatedItem = updatedItems.find((it: any) => it.requisition_item_id === item.requisition_item_id)
+                            await saveStrategyUpdate([{
+                              requisition_item_id: item.requisition_item_id,
+                              rfq_assignee_user_ids: resolveIds(updatedItem.rfqAssigneeName),
+                              po_assignee_user_ids: resolveIds(updatedItem.poAssigneeName),
+                              action: updatedItem.action || null,
+                            }])
+                            window.parent.postMessage({ type: 'REQUISITION_STRATEGY_UPDATE' }, '*')
+                          } catch {
+                            toast({ title: "Save failed", description: "Could not save assignment.", variant: "destructive" })
+                          }
+                        }
+
+                        return (
+                          <td key={columnKey} className="p-2 text-left" style={stickyStyle}>
+                            <div className="relative group">
+                              {assigned.length === 0 ? (
+                                <span className="text-red-700 text-xs">Unassigned</span>
+                              ) : assigned.length === 1 ? (
+                                <Badge variant="outline" className="text-xs">{assigned[0]}</Badge>
+                              ) : (
+                                <UiTooltip>
+                                  <UiTooltipTrigger>
+                                    <span className="text-blue-600 font-medium text-xs cursor-pointer">
+                                      {assigned.length} assigned
+                                    </span>
+                                  </UiTooltipTrigger>
+                                  <UiTooltipContent side="bottom" align="start">
+                                    <div className="space-y-1">
+                                      {assigned.map((u, i) => (
+                                        <div key={i} className="text-xs">{i + 1}. {u}</div>
+                                      ))}
+                                    </div>
+                                  </UiTooltipContent>
+                                </UiTooltip>
+                              )}
+                              {userPool.length > 0 && (
+                                <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg min-w-[160px] max-h-[200px] overflow-y-auto">
+                                  {userPool.map((userName) => (
+                                    <label key={userName} className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={assigned.includes(userName)}
+                                        onChange={() => toggleUser(userName)}
+                                        className="rounded"
+                                      />
+                                      {userName}
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        )
+                      }
+
+                      if (columnKey === "assignedTo") {
+                        const rawVal = item.assignedTo
                         const assignedUsersList = rawVal
                           ? String(rawVal).split(',').map((u: string) => u.trim()).filter(Boolean)
                           : []
                         const isMissing = assignedUsersList.length === 0
-
                         return (
                           <td key={columnKey} className="p-2 text-left" style={stickyStyle}>
                             {isMissing ? (
