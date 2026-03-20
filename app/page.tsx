@@ -356,6 +356,8 @@ export default function ProcurementDashboard() {
   const [showAssigneeEditDialog, setShowAssigneeEditDialog] = useState(false)
   const [editAssigneeRfq, setEditAssigneeRfq] = useState<string[]>([])
   const [editAssigneePo, setEditAssigneePo] = useState<string[]>([])
+  const [editRfqSearch, setEditRfqSearch] = useState('')
+  const [editPoSearch, setEditPoSearch] = useState('')
   const [selectedItems, setSelectedItems] = useState<number[]>([])
   const [editingItem, setEditingItem] = useState<any | null>(null)
   const [editingUsers, setEditingUsers] = useState<string[]>([])
@@ -5311,26 +5313,82 @@ export default function ProcurementDashboard() {
       </div>
 
       {/* Edit Assignees Dialog */}
-      {showAssigneeEditDialog && (
+      {showAssigneeEditDialog && (() => {
+        const editingItems = lineItems.filter((it: any) => selectedItems.includes(it.id))
+        const filteredRfq = rfqUserNames.filter(n => n.toLowerCase().includes(editRfqSearch.toLowerCase()))
+        const filteredPo = poUserNames.filter(n => n.toLowerCase().includes(editPoSearch.toLowerCase()))
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 space-y-5">
-            <div className="flex items-center justify-between">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b">
               <h2 className="text-base font-semibold">
                 Edit Assignees
-                {selectedItems.length > 1 && (
-                  <span className="ml-2 text-sm font-normal text-gray-500">({selectedItems.length} rows)</span>
-                )}
+                <span className="ml-2 text-sm font-normal text-gray-500">
+                  {editingItems.length === 1 ? '1 item' : `${editingItems.length} items`}
+                </span>
               </h2>
               <button onClick={() => setShowAssigneeEditDialog(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
 
-            <div className="space-y-4">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+              {/* Items being edited */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">RFQ Assignee</label>
-                <div className="border rounded-md max-h-40 overflow-y-auto divide-y">
-                  {rfqUserNames.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-3">No users available</p>
-                  ) : rfqUserNames.map((name) => (
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                  {editingItems.length === 1 ? 'Item' : 'Items being edited'}
+                </p>
+                <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
+                  {editingItems.map((it: any) => (
+                    <div key={it.requisition_item_id} className="px-3 py-2.5 grid grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <span className="text-gray-400">Item ID</span>
+                        <p className="font-medium text-gray-800 mt-0.5">{it.itemId || '—'}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-gray-400">Description</span>
+                        <p className="font-medium text-gray-800 mt-0.5 truncate">{it.description || '—'}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Qty</span>
+                        <p className="font-medium text-gray-800 mt-0.5">{it.quantity || '—'} {it.unit}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Requisition</span>
+                        <p className="font-medium text-gray-800 mt-0.5">{it.requisitionId || '—'}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Tag</span>
+                        <p className="font-medium text-gray-800 mt-0.5 truncate">{it.category || '—'}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Current RFQ</span>
+                        <p className="font-medium text-gray-800 mt-0.5 truncate">{it.rfqAssigneeName || 'Unassigned'}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-gray-400">Current PO</span>
+                        <p className="font-medium text-gray-800 mt-0.5 truncate">{it.poAssigneeName || 'Unassigned'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* RFQ Assignee */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  RFQ Assignee {editAssigneeRfq.length > 0 && <span className="text-blue-600">({editAssigneeRfq.length} selected)</span>}
+                </label>
+                <input
+                  type="text"
+                  placeholder="Search users..."
+                  value={editRfqSearch}
+                  onChange={e => setEditRfqSearch(e.target.value)}
+                  className="w-full border rounded-md px-3 py-1.5 text-sm mb-2 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <div className="border rounded-md max-h-36 overflow-y-auto divide-y">
+                  {filteredRfq.length === 0 ? (
+                    <p className="text-xs text-gray-400 p-3">No users found</p>
+                  ) : filteredRfq.map((name) => (
                     <label key={name} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
                       <input
                         type="checkbox"
@@ -5346,12 +5404,22 @@ export default function ProcurementDashboard() {
                 </div>
               </div>
 
+              {/* PO Assignee */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">PO Assignee</label>
-                <div className="border rounded-md max-h-40 overflow-y-auto divide-y">
-                  {poUserNames.length === 0 ? (
-                    <p className="text-xs text-gray-400 p-3">No users available</p>
-                  ) : poUserNames.map((name) => (
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  PO Assignee {editAssigneePo.length > 0 && <span className="text-blue-600">({editAssigneePo.length} selected)</span>}
+                </label>
+                <input
+                  type="text"
+                  placeholder="Search users..."
+                  value={editPoSearch}
+                  onChange={e => setEditPoSearch(e.target.value)}
+                  className="w-full border rounded-md px-3 py-1.5 text-sm mb-2 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+                <div className="border rounded-md max-h-36 overflow-y-auto divide-y">
+                  {filteredPo.length === 0 ? (
+                    <p className="text-xs text-gray-400 p-3">No users found</p>
+                  ) : filteredPo.map((name) => (
                     <label key={name} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
                       <input
                         type="checkbox"
@@ -5368,9 +5436,10 @@ export default function ProcurementDashboard() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-2">
+            {/* Footer */}
+            <div className="flex justify-end gap-3 px-6 py-4 border-t">
               <button
-                onClick={() => setShowAssigneeEditDialog(false)}
+                onClick={() => { setShowAssigneeEditDialog(false); setEditRfqSearch(''); setEditPoSearch('') }}
                 className="px-4 py-2 text-sm border rounded-md hover:bg-gray-50"
               >
                 Cancel
@@ -5405,6 +5474,8 @@ export default function ProcurementDashboard() {
                     window.parent.postMessage({ type: 'REQUISITION_STRATEGY_UPDATE' }, '*')
                     toast({ title: "Saved", description: `Updated ${saveItems.length} item${saveItems.length > 1 ? 's' : ''}.` })
                     setShowAssigneeEditDialog(false)
+                    setEditRfqSearch('')
+                    setEditPoSearch('')
                   } catch {
                     toast({ title: "Save failed", description: "Could not save assignments.", variant: "destructive" })
                   }
@@ -5416,7 +5487,8 @@ export default function ProcurementDashboard() {
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Improved Autoassign Popovers */}
       <AutoAssignUsersPopover
