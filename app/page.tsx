@@ -332,7 +332,8 @@ export default function ProcurementDashboard() {
     deadline: "",
     customer: "",
   })
-  const [projectUsers, setProjectUsers] = useState<Array<{user_id: string, name: string, email: string, role: string}>>([])
+  const [rfqUsers, setRfqUsers] = useState<Array<{user_id: string, name: string, email: string}>>([])
+  const [poUsers, setPoUsers] = useState<Array<{user_id: string, name: string, email: string}>>([])
   const [hasAssignPermission, setHasAssignPermission] = useState(false)
   // Project-level role arrays (same for all items)
   const [projectManagers, setProjectManagers] = useState<string>('')
@@ -738,16 +739,17 @@ export default function ProcurementDashboard() {
     loadRequisitionData()
   }, [])
 
-  // Load requisition strategy users (RFQ Edit + PO Edit)
+  // Load requisition strategy users (split: RFQ Edit / PO Edit)
   useEffect(() => {
     async function loadUsers() {
       const entityId = getEntityId()
       if (!entityId) return
       try {
         const res = await getRequisitionUsers(entityId)
-        const users = res.users || res.available_users || []
-        console.log('[Dashboard] Processing', users.length, 'users from API')
-        setProjectUsers(users.map((u: any) => ({ ...u, role: u.role || '' })))
+        const rfq = (res as any).rfq_assignee_users || []
+        const po = (res as any).po_assignee_users || []
+        setRfqUsers(rfq)
+        setPoUsers(po)
         setHasAssignPermission(!!(res as any).has_assign_permission)
       } catch (err) {
         console.error('[Dashboard] Failed to load users:', err)
@@ -1261,38 +1263,18 @@ export default function ProcurementDashboard() {
     return Array.from(set).sort()
   }, [lineItems])
 
+  // Combined list of all unique users (for generic dropdowns / settings)
   const allUsers = useMemo(() => {
     const userNames = new Set<string>()
-
-    // Add all users from API - these are the users with project access
-    console.log('[Dashboard] Processing', projectUsers.length, 'users from API')
-    projectUsers.forEach((user) => {
-      console.log('[Dashboard] User:', user.name, '| Email:', user.email, '| Role:', user.role)
-      if (user.name && user.name.trim()) {
-        userNames.add(user.name.trim())
-      } else {
-        console.warn('[Dashboard] Skipping user with empty name:', user.email)
-      }
+    ;[...rfqUsers, ...poUsers].forEach((user) => {
+      if (user.name?.trim()) userNames.add(user.name.trim())
     })
-
-    // Also add users from assigned items (in case there are legacy assignments)
-    for (const it of lineItems) {
-      const people = Array.isArray(it.assignedTo)
-        ? (it.assignedTo as string[])
-        : String(it.assignedTo || '')
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-      people.forEach((p) => {
-        if (p && p.trim()) {
-          userNames.add(p.trim())
-        }
-      })
-    }
-
-    console.log('[Dashboard] Final user list:', Array.from(userNames))
     return Array.from(userNames).sort()
-  }, [lineItems, projectUsers])
+  }, [rfqUsers, poUsers])
+
+  // Separate name lists for RFQ and PO assignee dropdowns
+  const rfqUserNames = useMemo(() => rfqUsers.map(u => u.name).filter(Boolean).sort(), [rfqUsers])
+  const poUserNames = useMemo(() => poUsers.map(u => u.name).filter(Boolean).sort(), [poUsers])
 
   // Dynamic filter options from table data
   const vendorOptions = useMemo(() => {
@@ -1799,11 +1781,9 @@ export default function ProcurementDashboard() {
 
   // Helper: resolve user ID to display name
   const resolveUserName = (uid: string): string => {
-    const fromProject = projectUsers.find(u => u.user_id === uid)
-    if (fromProject) return fromProject.name
-    const fromAvailable = availableUsers.find(u => u.user_id === uid)
-    if (fromAvailable) return fromAvailable.name
-    return uid // fallback to ID if not found
+    const allApiUsers = [...rfqUsers, ...poUsers, ...availableUsers]
+    const found = allApiUsers.find(u => u.user_id === uid)
+    return found ? found.name : uid
   }
 
   // Save strategy assignments to backend + notify Factwise
@@ -1813,7 +1793,7 @@ export default function ProcurementDashboard() {
         const resolveIds = (names: string): string[] => {
           if (!names) return []
           return names.split(';').map((n: string) => n.trim()).filter(Boolean).map((name: string) => {
-            const user = projectUsers.find(u => u.name === name)
+            const user = [...rfqUsers, ...poUsers].find(u => u.name === name)
             return user ? user.user_id : name
           })
         }
@@ -1924,7 +1904,7 @@ export default function ProcurementDashboard() {
           const resolveIds = (names: string): string[] => {
             if (!names) return []
             return names.split(';').map((n: string) => n.trim()).filter(Boolean).map((name: string) => {
-              const user = projectUsers.find((u: any) => u.name === name)
+              const user = [...rfqUsers, ...poUsers].find((u: any) => u.name === name)
               return user ? user.user_id : name
             })
           }
@@ -1984,7 +1964,7 @@ export default function ProcurementDashboard() {
       // Convert user names to user IDs
       const selectedUserIds = editingUsers
         .map(userName => {
-          const user = projectUsers.find(u => u.name === userName)
+          const user = [...rfqUsers, ...poUsers].find(u => u.name === userName)
           console.log(`[Manual Assign] Looking for user "${userName}", found:`, user)
           return user?.user_id
         })
@@ -2136,7 +2116,7 @@ export default function ProcurementDashboard() {
 
         selectedUserIds = assignedUserNames
           .map((userName: string) => {
-            const user = projectUsers.find(u => u.name === userName)
+            const user = [...rfqUsers, ...poUsers].find(u => u.name === userName)
             return user?.user_id
           })
           .filter((id: string | undefined): id is string => id !== undefined)
@@ -2254,7 +2234,7 @@ export default function ProcurementDashboard() {
 
           if (userIdsChanged && updatePayload.assigned_user_ids) {
             updatedItem.assigned_user_ids = updatePayload.assigned_user_ids
-            updatedItem.assignedTo = projectUsers
+            updatedItem.assignedTo = [...rfqUsers, ...poUsers]
               .filter((u: any) => updatePayload.assigned_user_ids.includes(u.user_id))
               .map((u: any) => u.name)
               .join(', ')
@@ -2503,7 +2483,7 @@ export default function ProcurementDashboard() {
         const resolveIds = (names: string): string[] => {
           if (!names) return []
           return names.split(';').map((n: string) => n.trim()).filter(Boolean).map((name: string) => {
-            const user = projectUsers.find((u: any) => u.name === name)
+            const user = [...rfqUsers, ...poUsers].find((u: any) => u.name === name)
             return user ? user.user_id : name
           })
         }
@@ -2597,7 +2577,7 @@ export default function ProcurementDashboard() {
         .map(([userId, _]) => userId)
 
       // Convert user IDs to names
-      const commonUserNames = projectUsers
+      const commonUserNames = [...rfqUsers, ...poUsers]
         .filter((u: any) => commonUserIds.includes(u.user_id))
         .map((u: any) => u.name)
         .join(', ')
@@ -2680,7 +2660,7 @@ export default function ProcurementDashboard() {
 
           newUserIdsFromForm = assignedUserNames
             .map((userName: string) => {
-              const user = projectUsers.find(u => u.name === userName)
+              const user = [...rfqUsers, ...poUsers].find(u => u.name === userName)
               return user?.user_id
             })
             .filter((id: string | undefined): id is string => id !== undefined)
@@ -2804,7 +2784,7 @@ export default function ProcurementDashboard() {
             const itemSpecificUserIds = existingUserIds.filter((id: string) => !originalCommonUserIds.includes(id))
             const finalUserIds = Array.from(new Set([...itemSpecificUserIds, ...newUserIdsFromForm]))
             updates.assigned_user_ids = finalUserIds
-            updates.assignedTo = projectUsers
+            updates.assignedTo = [...rfqUsers, ...poUsers]
               .filter((u: any) => finalUserIds.includes(u.user_id))
               .map((u: any) => u.name)
               .join(', ')
@@ -5770,7 +5750,7 @@ export default function ProcurementDashboard() {
             <div className="flex-1 min-h-0">
               <SettingsPanel
                 allTags={allTags}
-                allCustomers={projectUsers.map(u => u.name)}
+                allCustomers={allUsers}
                 allItemIds={lineItems.map((it: any) => it.itemId).filter(Boolean)}
                 availableUsers={availableUsers}
                 rfqResponsibleUsers={rfqResponsibleUsers}
