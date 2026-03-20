@@ -353,8 +353,9 @@ export default function ProcurementDashboard() {
   const loadingStartedRef = useRef(false)
   const [vendorSearchTerm, setVendorSearchTerm] = useState("")
   const [userSearchTerm, setUserSearchTerm] = useState("")
-  // key = `${requisition_item_id}:rfqAssignee` or `...poAssignee`
-  const [openAssigneeDropdown, setOpenAssigneeDropdown] = useState<string | null>(null)
+  const [showAssigneeEditDialog, setShowAssigneeEditDialog] = useState(false)
+  const [editAssigneeRfq, setEditAssigneeRfq] = useState<string[]>([])
+  const [editAssigneePo, setEditAssigneePo] = useState<string[]>([])
   const [selectedItems, setSelectedItems] = useState<number[]>([])
   const [editingItem, setEditingItem] = useState<any | null>(null)
   const [editingUsers, setEditingUsers] = useState<string[]>([])
@@ -1233,10 +1234,6 @@ export default function ProcurementDashboard() {
       const button = (event.target as Element)?.closest('[title="Show/Hide Columns"]')
       if (columnDropdown && !columnDropdown.contains(event.target as Node) && !button) {
         columnDropdown.classList.add('hidden')
-      }
-      // Close assignee dropdown if clicking outside
-      if (!(event.target as Element)?.closest('[data-assignee-dropdown]')) {
-        setOpenAssigneeDropdown(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -3884,6 +3881,28 @@ export default function ProcurementDashboard() {
                 </Button>
               )}
 
+              {/* Edit Assignees — available to all users, requires row selection */}
+              <Button
+                variant="outline"
+                className="flex items-center gap-2 bg-transparent"
+                disabled={selectedItems.length === 0}
+                onClick={() => {
+                  // Pre-fill from first selected item if single, else empty
+                  if (selectedItems.length === 1) {
+                    const item = lineItems.find((it: any) => it.id === selectedItems[0])
+                    setEditAssigneeRfq(item?.rfqAssigneeName ? item.rfqAssigneeName.split(';').map((s: string) => s.trim()).filter(Boolean) : [])
+                    setEditAssigneePo(item?.poAssigneeName ? item.poAssigneeName.split(';').map((s: string) => s.trim()).filter(Boolean) : [])
+                  } else {
+                    setEditAssigneeRfq([])
+                    setEditAssigneePo([])
+                  }
+                  setShowAssigneeEditDialog(true)
+                }}
+              >
+                <Edit className="h-4 w-4" />
+                Edit{selectedItems.length > 0 ? ` (${selectedItems.length})` : ''}
+              </Button>
+
               {/* Auto Fill Prices */}
               <Button
                 variant="outline"
@@ -4514,85 +4533,28 @@ export default function ProcurementDashboard() {
                       }
 
                       if (columnKey === "rfqAssignee" || columnKey === "poAssignee") {
-                        const isRfq = columnKey === "rfqAssignee"
-                        const rawVal = isRfq ? item.rfqAssigneeName : item.poAssigneeName
-                        const userPool = isRfq ? rfqUserNames : poUserNames
+                        const rawVal = columnKey === "rfqAssignee" ? item.rfqAssigneeName : item.poAssigneeName
                         const assigned = rawVal
                           ? String(rawVal).split(';').map((u: string) => u.trim()).filter(Boolean)
                           : []
-
-                        const toggleUser = async (userName: string) => {
-                          const next = assigned.includes(userName)
-                            ? assigned.filter((u) => u !== userName)
-                            : [...assigned, userName]
-                          const nextStr = next.join('; ')
-                          const updatedItems = lineItems.map((it: any) =>
-                            it.requisition_item_id === item.requisition_item_id
-                              ? { ...it, [isRfq ? 'rfqAssigneeName' : 'poAssigneeName']: nextStr }
-                              : it
-                          )
-                          setLineItems(updatedItems)
-                          try {
-                            const resolveIds = (names: string): string[] => {
-                              if (!names) return []
-                              return names.split(';').map((n) => n.trim()).filter(Boolean).map((name) => {
-                                const user = [...rfqUsers, ...poUsers].find((u) => u.name === name)
-                                return user ? user.user_id : name
-                              })
-                            }
-                            const updatedItem = updatedItems.find((it: any) => it.requisition_item_id === item.requisition_item_id)
-                            await saveStrategyUpdate([{
-                              requisition_item_id: item.requisition_item_id,
-                              rfq_assignee_user_ids: resolveIds(updatedItem.rfqAssigneeName),
-                              po_assignee_user_ids: resolveIds(updatedItem.poAssigneeName),
-                              action: updatedItem.action || null,
-                            }])
-                            window.parent.postMessage({ type: 'REQUISITION_STRATEGY_UPDATE' }, '*')
-                          } catch {
-                            toast({ title: "Save failed", description: "Could not save assignment.", variant: "destructive" })
-                          }
-                        }
-
-                        const dropdownKey = `${item.requisition_item_id}:${columnKey}`
-                        const isOpen = openAssigneeDropdown === dropdownKey
-
                         return (
                           <td key={columnKey} className="p-2 text-left" style={stickyStyle}>
-                            <div className="relative" data-assignee-dropdown="true">
-                              <button
-                                className="flex items-center gap-1 text-left w-full"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setOpenAssigneeDropdown(isOpen ? null : dropdownKey)
-                                }}
-                              >
-                                {assigned.length === 0 ? (
-                                  <span className="text-red-700 text-xs">Unassigned ▾</span>
-                                ) : assigned.length === 1 ? (
-                                  <span className="text-xs border rounded px-1.5 py-0.5 border-gray-300">{assigned[0]} ▾</span>
-                                ) : (
-                                  <span className="text-blue-600 font-medium text-xs">{assigned.length} assigned ▾</span>
-                                )}
-                              </button>
-                              {isOpen && userPool.length > 0 && (
-                                <div
-                                  className="absolute z-[9999] left-0 top-full mt-1 bg-white border border-gray-200 rounded shadow-lg min-w-[180px] max-h-[220px] overflow-y-auto"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {userPool.map((userName) => (
-                                    <label key={userName} className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={assigned.includes(userName)}
-                                        onChange={() => toggleUser(userName)}
-                                        className="rounded"
-                                      />
-                                      {userName}
-                                    </label>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
+                            {assigned.length === 0 ? (
+                              <span className="text-red-700 text-xs">Unassigned</span>
+                            ) : assigned.length === 1 ? (
+                              <Badge variant="outline" className="text-xs">{assigned[0]}</Badge>
+                            ) : (
+                              <UiTooltip>
+                                <UiTooltipTrigger>
+                                  <span className="text-blue-600 font-medium text-xs cursor-pointer">{assigned.length} assigned</span>
+                                </UiTooltipTrigger>
+                                <UiTooltipContent side="bottom" align="start">
+                                  <div className="space-y-1">
+                                    {assigned.map((u, i) => <div key={i} className="text-xs">{i + 1}. {u}</div>)}
+                                  </div>
+                                </UiTooltipContent>
+                              </UiTooltip>
+                            )}
                           </td>
                         )
                       }
@@ -5347,6 +5309,114 @@ export default function ProcurementDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Edit Assignees Dialog */}
+      {showAssigneeEditDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">
+                Edit Assignees
+                {selectedItems.length > 1 && (
+                  <span className="ml-2 text-sm font-normal text-gray-500">({selectedItems.length} rows)</span>
+                )}
+              </h2>
+              <button onClick={() => setShowAssigneeEditDialog(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">RFQ Assignee</label>
+                <div className="border rounded-md max-h-40 overflow-y-auto divide-y">
+                  {rfqUserNames.length === 0 ? (
+                    <p className="text-xs text-gray-400 p-3">No users available</p>
+                  ) : rfqUserNames.map((name) => (
+                    <label key={name} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editAssigneeRfq.includes(name)}
+                        onChange={() => setEditAssigneeRfq(prev =>
+                          prev.includes(name) ? prev.filter(u => u !== name) : [...prev, name]
+                        )}
+                        className="rounded"
+                      />
+                      <span className="text-sm">{name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">PO Assignee</label>
+                <div className="border rounded-md max-h-40 overflow-y-auto divide-y">
+                  {poUserNames.length === 0 ? (
+                    <p className="text-xs text-gray-400 p-3">No users available</p>
+                  ) : poUserNames.map((name) => (
+                    <label key={name} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editAssigneePo.includes(name)}
+                        onChange={() => setEditAssigneePo(prev =>
+                          prev.includes(name) ? prev.filter(u => u !== name) : [...prev, name]
+                        )}
+                        className="rounded"
+                      />
+                      <span className="text-sm">{name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowAssigneeEditDialog(false)}
+                className="px-4 py-2 text-sm border rounded-md hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const rfqStr = editAssigneeRfq.join('; ')
+                  const poStr = editAssigneePo.join('; ')
+                  const resolveIds = (names: string): string[] => {
+                    if (!names) return []
+                    return names.split(';').map(n => n.trim()).filter(Boolean).map(name => {
+                      const user = [...rfqUsers, ...poUsers].find(u => u.name === name)
+                      return user ? user.user_id : name
+                    })
+                  }
+                  const updatedItems = lineItems.map((it: any) =>
+                    selectedItems.includes(it.id)
+                      ? { ...it, rfqAssigneeName: rfqStr, poAssigneeName: poStr }
+                      : it
+                  )
+                  setLineItems(updatedItems)
+                  try {
+                    const saveItems = updatedItems
+                      .filter((it: any) => selectedItems.includes(it.id))
+                      .map((it: any) => ({
+                        requisition_item_id: it.requisition_item_id,
+                        rfq_assignee_user_ids: resolveIds(it.rfqAssigneeName),
+                        po_assignee_user_ids: resolveIds(it.poAssigneeName),
+                        action: it.action || null,
+                      }))
+                    await saveStrategyUpdate(saveItems)
+                    window.parent.postMessage({ type: 'REQUISITION_STRATEGY_UPDATE' }, '*')
+                    toast({ title: "Saved", description: `Updated ${saveItems.length} item${saveItems.length > 1 ? 's' : ''}.` })
+                    setShowAssigneeEditDialog(false)
+                  } catch {
+                    toast({ title: "Save failed", description: "Could not save assignments.", variant: "destructive" })
+                  }
+                }}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Improved Autoassign Popovers */}
       <AutoAssignUsersPopover
