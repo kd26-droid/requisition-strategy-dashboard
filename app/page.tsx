@@ -3430,8 +3430,8 @@ export default function ProcurementDashboard() {
   // Handle back button click
   const handleBackClick = () => {
     if (isRequisitionMode) {
-      // Running inside Factwise iframe — tell parent to close the overlay
-      window.parent.postMessage({ type: 'REQUISITION_STRATEGY_CLOSE' }, '*')
+      // Opened in a new tab from Factwise — just close this tab
+      window.close()
       return
     }
 
