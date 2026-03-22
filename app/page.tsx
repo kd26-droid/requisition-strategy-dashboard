@@ -358,6 +358,7 @@ export default function ProcurementDashboard() {
   const [editAssigneePo, setEditAssigneePo] = useState<string[]>([])
   const [editRfqSearch, setEditRfqSearch] = useState('')
   const [editPoSearch, setEditPoSearch] = useState('')
+  const [editAssigneeAction, setEditAssigneeAction] = useState<string>('')
   const [selectedItems, setSelectedItems] = useState<number[]>([])
   const [editingItem, setEditingItem] = useState<any | null>(null)
   const [editingUsers, setEditingUsers] = useState<string[]>([])
@@ -3894,9 +3895,11 @@ export default function ProcurementDashboard() {
                     const item = lineItems.find((it: any) => it.id === selectedItems[0])
                     setEditAssigneeRfq(item?.rfqAssigneeName ? item.rfqAssigneeName.split(';').map((s: string) => s.trim()).filter(Boolean) : [])
                     setEditAssigneePo(item?.poAssigneeName ? item.poAssigneeName.split(';').map((s: string) => s.trim()).filter(Boolean) : [])
+                    setEditAssigneeAction(item?.action || '')
                   } else {
                     setEditAssigneeRfq([])
                     setEditAssigneePo([])
+                    setEditAssigneeAction('')
                   }
                   setShowAssigneeEditDialog(true)
                 }}
@@ -5424,12 +5427,41 @@ export default function ProcurementDashboard() {
                   ))}
                 </div>
               </div>
+
+              {/* Action */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Action</label>
+                <div className="flex flex-wrap gap-2">
+                  {['RFQ', 'Direct PO', 'Hold', 'Scrap'].map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      onClick={() => setEditAssigneeAction(prev => prev === action ? '' : action)}
+                      className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                        editAssigneeAction === action
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {action}
+                    </button>
+                  ))}
+                  {editAssigneeAction && !['RFQ', 'Direct PO', 'Hold', 'Scrap'].includes(editAssigneeAction) && (
+                    <span className="px-3 py-1.5 text-sm rounded-md border bg-blue-600 text-white border-blue-600">{editAssigneeAction}</span>
+                  )}
+                </div>
+                {editAssigneeAction && (
+                  <button type="button" onClick={() => setEditAssigneeAction('')} className="mt-1.5 text-xs text-gray-400 hover:text-gray-600">
+                    Clear action
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Footer */}
             <div className="flex justify-end gap-3 px-6 py-4 border-t">
               <button
-                onClick={() => { setShowAssigneeEditDialog(false); setEditRfqSearch(''); setEditPoSearch('') }}
+                onClick={() => { setShowAssigneeEditDialog(false); setEditRfqSearch(''); setEditPoSearch(''); setEditAssigneeAction('') }}
                 className="px-4 py-2 text-sm border rounded-md hover:bg-gray-50"
               >
                 Cancel
@@ -5447,7 +5479,7 @@ export default function ProcurementDashboard() {
                   }
                   const updatedItems = lineItems.map((it: any) =>
                     selectedItems.includes(it.id)
-                      ? { ...it, rfqAssigneeName: rfqStr, poAssigneeName: poStr }
+                      ? { ...it, rfqAssigneeName: rfqStr, poAssigneeName: poStr, ...(editAssigneeAction !== '' ? { action: editAssigneeAction } : {}) }
                       : it
                   )
                   setLineItems(updatedItems)
@@ -5466,6 +5498,7 @@ export default function ProcurementDashboard() {
                     setShowAssigneeEditDialog(false)
                     setEditRfqSearch('')
                     setEditPoSearch('')
+                    setEditAssigneeAction('')
                   } catch {
                     toast({ title: "Save failed", description: "Could not save assignments.", variant: "destructive" })
                   }
