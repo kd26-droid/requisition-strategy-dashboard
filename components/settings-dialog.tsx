@@ -1370,6 +1370,30 @@ export function SettingsPanel({
                             />
                           )}
 
+                          {idx === rule.criteria.length - 1 && (
+                            <>
+                              <span className="text-xs font-semibold text-gray-600 mx-1">→ THEN</span>
+                              <Select
+                                value={rule.assignAction}
+                                onValueChange={(v) => setLocal(prev => ({
+                                  ...prev,
+                                  actions: {
+                                    ...prev.actions,
+                                    formulas: (prev.actions.formulas || []).map(f => f.id === rule.id ? { ...f, assignAction: v } : f),
+                                  },
+                                }))}
+                              >
+                                <SelectTrigger className="w-28 text-xs border-green-300 bg-green-50"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="RFQ">RFQ</SelectItem>
+                                  <SelectItem value="Direct PO">Direct PO</SelectItem>
+                                  <SelectItem value="Hold">Hold</SelectItem>
+                                  <SelectItem value="Scrap">Scrap</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </>
+                          )}
+
                           {idx > 0 && (
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateCriteria(cs => cs.filter(r => r.id !== row.id))}>
                               <Trash2 className="h-3 w-3" />
@@ -1380,8 +1404,8 @@ export function SettingsPanel({
                     })}
                   </div>
 
-                  {/* Add condition + THEN */}
-                  <div className="flex items-center justify-between pt-1">
+                  {/* Add condition */}
+                  <div className="pt-1">
                     <button
                       type="button"
                       className="text-blue-600 text-xs font-medium hover:underline"
@@ -1398,28 +1422,6 @@ export function SettingsPanel({
                     >
                       + Add Condition
                     </button>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-gray-600">→ THEN</span>
-                      <Select
-                        value={rule.assignAction}
-                        onValueChange={(v) => setLocal(prev => ({
-                          ...prev,
-                          actions: {
-                            ...prev.actions,
-                            formulas: (prev.actions.formulas || []).map(f => f.id === rule.id ? { ...f, assignAction: v } : f),
-                          },
-                        }))}
-                      >
-                        <SelectTrigger className="w-28 text-xs border-green-300 bg-green-50"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="RFQ">RFQ</SelectItem>
-                          <SelectItem value="Direct PO">Direct PO</SelectItem>
-                          <SelectItem value="Hold">Hold</SelectItem>
-                          <SelectItem value="Scrap">Scrap</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
                   </div>
                 </div>
               ))}
