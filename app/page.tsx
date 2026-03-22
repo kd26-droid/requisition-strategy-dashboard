@@ -2391,12 +2391,11 @@ export default function ProcurementDashboard() {
     document.body.click()
   }
 
-  // Assign Actions Handler — evaluates criteria from Settings → Actions tab
+  // Assign Actions Handler — evaluates each formula rule independently
   const handleAssignActions = async (scope: 'all' | 'unassigned' | 'selected') => {
-    const criteria: any[] = currentSettings.actions?.criteria || []
-    const assignAction: string = (currentSettings.actions as any)?.assignAction || 'RFQ'
+    const formulas: any[] = (currentSettings.actions as any)?.formulas || []
 
-    if (criteria.length === 0) {
+    if (formulas.length === 0) {
       toast({ title: "No Rules", description: "Configure action rules in Settings → Actions first.", variant: "destructive" })
       return
     }
@@ -2410,7 +2409,6 @@ export default function ProcurementDashboard() {
       idsToUpdate = new Set(lineItems.map((i: any) => i.id))
     }
 
-    // Map our column names to item fields
     const getItemValue = (item: any, field: string): string[] | string => {
       switch (field) {
         case 'Tag': return String(item.category || '').split(',').map((t: string) => t.trim()).filter(Boolean)
@@ -2430,8 +2428,7 @@ export default function ProcurementDashboard() {
       }
     }
 
-    const evaluateCriteria = (item: any): boolean => {
-      // Evaluate each criterion; combine with AND/OR
+    const evaluateCriteria = (item: any, criteria: any[]): boolean => {
       let result: boolean | null = null
       for (const row of criteria) {
         const itemVal = getItemValue(item, row.field)
@@ -2447,7 +2444,6 @@ export default function ProcurementDashboard() {
           else if (row.operator === '<') match = a < b
           else if (row.operator === '=') match = a === b
         } else if (Array.isArray(itemVal)) {
-          // Tag field — check against each tag individually
           const tags = itemVal.map((t: string) => t.toLowerCase())
           if (row.operator === 'is') match = tags.includes(ruleVal)
           else if (row.operator === 'is not') match = !tags.includes(ruleVal)
@@ -2458,48 +2454,46 @@ export default function ProcurementDashboard() {
           else if (row.operator === 'is not') match = a !== ruleVal
           else if (row.operator === 'contains') match = a.includes(ruleVal)
         }
-
-        if (result === null) {
-          result = match
-        } else if (row.conjunction === 'OR') {
-          result = result || match
-        } else {
-          result = result && match
-        }
+        if (result === null) result = match
+        else if (row.conjunction === 'OR') result = result || match
+        else result = result && match
       }
       return result ?? false
     }
 
-
+    // Apply each formula rule independently — later rules overwrite earlier ones
     let assigned = 0
-    const updatedItems = lineItems.map((item: any) => {
-      if (!idsToUpdate.has(item.id)) return item
-      if (evaluateCriteria(item)) {
-        assigned++
-        return { ...item, action: assignAction }
-      }
-      return item
-    })
+    let updatedItems = [...lineItems]
+    for (const formula of formulas) {
+      const criteria = formula.criteria || []
+      const assignAction = formula.assignAction || 'RFQ'
+      if (criteria.length === 0) continue
+      updatedItems = updatedItems.map((item: any) => {
+        if (!idsToUpdate.has(item.id)) return item
+        if (evaluateCriteria(item, criteria)) {
+          assigned++
+          return { ...item, action: assignAction }
+        }
+        return item
+      })
+    }
 
     setLineItems(updatedItems)
 
-    // Auto-save to backend
     if (assigned > 0) {
-      const saveItems: StrategyUpdateItem[] = updatedItems.map((item: any) => {
-        const resolveIds = (names: string): string[] => {
-          if (!names) return []
-          return names.split(';').map((n: string) => n.trim()).filter(Boolean).map((name: string) => {
-            const user = [...rfqUsers, ...poUsers].find((u: any) => u.name === name)
-            return user ? user.user_id : name
-          })
-        }
-        return {
-          requisition_item_id: item.requisition_item_id,
-          rfq_assignee_user_ids: resolveIds(item.rfqAssigneeName),
-          po_assignee_user_ids: resolveIds(item.poAssigneeName),
-          action: item.action || null,
-        }
-      })
+      const resolveIds = (names: string): string[] => {
+        if (!names) return []
+        return names.split(';').map((n: string) => n.trim()).filter(Boolean).map((name: string) => {
+          const user = [...rfqUsers, ...poUsers].find((u: any) => u.name === name)
+          return user ? user.user_id : name
+        })
+      }
+      const saveItems: StrategyUpdateItem[] = updatedItems.map((item: any) => ({
+        requisition_item_id: item.requisition_item_id,
+        rfq_assignee_user_ids: resolveIds(item.rfqAssigneeName),
+        po_assignee_user_ids: resolveIds(item.poAssigneeName),
+        action: item.action || null,
+      }))
       await saveStrategyUpdate(saveItems)
       window.parent.postMessage({ type: 'REQUISITION_STRATEGY_UPDATE', items: saveItems }, '*')
     }
@@ -2507,8 +2501,8 @@ export default function ProcurementDashboard() {
     toast({
       title: "Actions Assigned",
       description: assigned > 0
-        ? `Assigned "${assignAction}" to ${assigned} item(s) matching your rules`
-        : `No items matched the configured rules`,
+        ? `Assigned actions to ${assigned} item(s) across ${formulas.length} rule(s)`
+        : `No items matched any configured rule`,
     })
 
     document.body.click()

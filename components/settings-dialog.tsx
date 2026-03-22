@@ -65,12 +65,19 @@ export type PricesSettings = {
   sourcesByMapping: Record<MappingId, PriceSource[]>
 }
 
+export type ActionRule = {
+  id: string
+  criteria: ActionCriterion[]
+  assignAction: string
+}
+
 export type ActionsSettings = {
   purpose: ActionPurpose
   itemIdType: ItemIdType
   sources: PriceSource[]
   maxAgeDays: number
-  criteria?: ActionCriterion[]
+  criteria?: ActionCriterion[]       // legacy — kept for backward compat
+  formulas?: ActionRule[]            // new multi-rule format
 }
 
 export type AppSettings = {
@@ -1227,178 +1234,195 @@ export function SettingsPanel({
 
           {/* Actions Tab */}
           <TabsContent value="actions" className="flex-1 px-10 py-6 overflow-y-auto">
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Action Rules</CardTitle>
-                  <CardDescription>Define conditions on item fields to automatically assign an action (RFQ or PO)</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {(local.actions.criteria || []).map((row, idx) => (
-                      <div key={row.id} className="flex flex-wrap items-center gap-2 p-2 rounded border">
-                        {/* Conjunction */}
-                        {idx === 0 ? (
-                          <span className="text-sm text-gray-600 font-semibold mr-2">WHERE</span>
-                        ) : (
-                          <Select
-                            value={row.conjunction}
-                            onValueChange={(v) => setLocal(prev => ({
-                              ...prev,
-                              actions: {
-                                ...prev.actions,
-                                criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, conjunction: v as 'AND' | 'OR' } : r)
-                              }
-                            }))}
-                          >
-                            <SelectTrigger className="w-20 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="AND">AND</SelectItem>
-                              <SelectItem value="OR">OR</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Action Rules</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Each rule evaluates independently. Items matching a rule get that action assigned.</p>
+                </div>
+                <button
+                  type="button"
+                  className="text-sm font-medium text-blue-600 border border-blue-300 rounded-md px-3 py-1.5 hover:bg-blue-50"
+                  onClick={() => setLocal(prev => ({
+                    ...prev,
+                    actions: {
+                      ...prev.actions,
+                      formulas: [...(prev.actions.formulas || []), {
+                        id: Date.now().toString(),
+                        criteria: [{ id: Date.now().toString() + '_c', conjunction: 'WHERE' as const, field: 'Tag' as const, operator: 'is' as const, value: '' }],
+                        assignAction: 'RFQ',
+                      }],
+                    },
+                  }))}
+                >
+                  + Add Rule
+                </button>
+              </div>
 
-                        {/* Field — only our actual columns */}
-                        <Select
-                          value={row.field}
-                          onValueChange={(v) => setLocal(prev => ({
-                            ...prev,
-                            actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, field: v as any, operator: 'is', value: '' } : r) }
-                          }))}
-                        >
-                          <SelectTrigger className="w-40 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Tag">Tag</SelectItem>
-                            <SelectItem value="Item ID">Item ID</SelectItem>
-                            <SelectItem value="Description">Description</SelectItem>
-                            <SelectItem value="Quantity">Quantity</SelectItem>
-                            <SelectItem value="Pending Qty">Pending Qty</SelectItem>
-                            <SelectItem value="Desired Price">Desired Price</SelectItem>
-                            <SelectItem value="RFQ Assignee">RFQ Assignee</SelectItem>
-                            <SelectItem value="PO Assignee">PO Assignee</SelectItem>
-                            <SelectItem value="MPN">MPN</SelectItem>
-                            <SelectItem value="ERP Code">ERP Code</SelectItem>
-                            <SelectItem value="CPN">CPN</SelectItem>
-                            <SelectItem value="HSN">HSN</SelectItem>
-                            <SelectItem value="Requisition ID">Requisition ID</SelectItem>
-                          </SelectContent>
-                        </Select>
+              {(local.actions.formulas || []).length === 0 && (
+                <div className="text-center py-12 text-gray-400 border-2 border-dashed rounded-lg">
+                  <p className="text-sm">No rules yet. Click <strong>+ Add Rule</strong> to create one.</p>
+                </div>
+              )}
 
-                        {/* Operator — text fields: is/is not/contains; numeric: ≥ ≤ > < = */}
-                        <Select
-                          value={row.operator}
-                          onValueChange={(v) => setLocal(prev => ({
-                            ...prev,
-                            actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, operator: v as any } : r) }
-                          }))}
-                        >
-                          <SelectTrigger className="w-28 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {(['Quantity', 'Pending Qty', 'Desired Price'].includes(row.field) ? (
-                              <>
-                                <SelectItem value=">=">&ge;</SelectItem>
-                                <SelectItem value="<=">&le;</SelectItem>
-                                <SelectItem value=">">{'>'}</SelectItem>
-                                <SelectItem value="<">{'<'}</SelectItem>
-                                <SelectItem value="=">=</SelectItem>
-                              </>
-                            ) : (
-                              <>
-                                <SelectItem value="is">is</SelectItem>
-                                <SelectItem value="is not">is not</SelectItem>
-                                <SelectItem value="contains">contains</SelectItem>
-                              </>
-                            ))}
-                          </SelectContent>
-                        </Select>
-
-                        {/* Value — dropdown for Tag/Item ID/RFQ Assignee/PO Assignee, number input for numeric, text for rest */}
-                        {row.field === 'Item ID' ? (
-                          <Select value={row.value} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: v } : r) } }))}>
-                            <SelectTrigger className="w-48 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue placeholder="Select item ID" /></SelectTrigger>
-                            <SelectContent>
-                              {allItemIds.map(id => (<SelectItem key={id} value={id}>{id}</SelectItem>))}
-                            </SelectContent>
-                          </Select>
-                        ) : row.field === 'Tag' ? (
-                          <Select value={row.value} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: v } : r) } }))}>
-                            <SelectTrigger className="w-48 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue placeholder="Select tag" /></SelectTrigger>
-                            <SelectContent>
-                              {allTags.map(tag => (<SelectItem key={tag} value={tag}>{tag}</SelectItem>))}
-                            </SelectContent>
-                          </Select>
-                        ) : (row.field === 'RFQ Assignee' || row.field === 'PO Assignee') ? (
-                          <Select value={row.value} onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: v } : r) } }))}>
-                            <SelectTrigger className="w-48 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"><SelectValue placeholder="Select user" /></SelectTrigger>
-                            <SelectContent>
-                              {allCustomers.map(user => (<SelectItem key={user} value={user}>{user}</SelectItem>))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input
-                            className="w-40 border-2 border-blue-300 bg-blue-50 hover:border-blue-400 focus:border-blue-500"
-                            type={['Quantity', 'Pending Qty', 'Desired Price'].includes(row.field) ? 'number' : 'text'}
-                            placeholder="Value"
-                            value={row.value}
-                            onChange={(e) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, criteria: (prev.actions.criteria || []).map(r => r.id === row.id ? { ...r, value: e.target.value } : r) } }))}
-                          />
-                        )}
-
-                        {/* → THEN assign action */}
-                        {idx === (local.actions.criteria || []).length - 1 && (
-                          <>
-                            <span className="text-sm font-semibold text-gray-600 mx-1">→ THEN</span>
-                            <Select
-                              value={(local.actions as any).assignAction || 'RFQ'}
-                              onValueChange={(v) => setLocal(prev => ({ ...prev, actions: { ...prev.actions, assignAction: v } as any }))}
-                            >
-                              <SelectTrigger className="w-24 border-2 border-green-300 bg-green-50 hover:border-green-400 focus:border-green-500"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="RFQ">RFQ</SelectItem>
-                                <SelectItem value="PO">PO</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </>
-                        )}
-
-                        {/* Remove row */}
-                        {idx > 0 && (
-                          <Button variant="ghost" size="icon" onClick={() => setLocal(prev => ({
-                            ...prev,
-                            actions: { ...prev.actions, criteria: (prev.actions.criteria || []).filter(r => r.id !== row.id) }
-                          }))}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Add condition */}
-                  <div className="mt-3">
+              {(local.actions.formulas || []).map((rule, ruleIdx) => (
+                <div key={rule.id} className="border rounded-lg p-4 space-y-3 bg-gray-50">
+                  {/* Rule header */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Rule {ruleIdx + 1}</span>
                     <button
                       type="button"
-                      className="text-blue-600 text-sm font-medium hover:underline"
+                      onClick={() => setLocal(prev => ({ ...prev, actions: { ...prev.actions, formulas: (prev.actions.formulas || []).filter(r => r.id !== rule.id) } }))}
+                      className="text-red-400 hover:text-red-600 text-xs"
+                    >
+                      Remove rule
+                    </button>
+                  </div>
+
+                  {/* Criteria rows */}
+                  <div className="space-y-2">
+                    {rule.criteria.map((row, idx) => {
+                      const updateCriteria = (updater: (c: ActionCriterion[]) => ActionCriterion[]) =>
+                        setLocal(prev => ({
+                          ...prev,
+                          actions: {
+                            ...prev.actions,
+                            formulas: (prev.actions.formulas || []).map(f => f.id === rule.id ? { ...f, criteria: updater(f.criteria) } : f),
+                          },
+                        }))
+
+                      return (
+                        <div key={row.id} className="flex flex-wrap items-center gap-2 bg-white p-2 rounded border">
+                          {idx === 0 ? (
+                            <span className="text-xs font-semibold text-gray-500 w-12">WHERE</span>
+                          ) : (
+                            <Select value={row.conjunction} onValueChange={(v) => updateCriteria(cs => cs.map(r => r.id === row.id ? { ...r, conjunction: v as any } : r))}>
+                              <SelectTrigger className="w-16 text-xs border-blue-300 bg-blue-50"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="AND">AND</SelectItem>
+                                <SelectItem value="OR">OR</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          )}
+
+                          <Select value={row.field} onValueChange={(v) => updateCriteria(cs => cs.map(r => r.id === row.id ? { ...r, field: v as any, operator: 'is', value: '' } : r))}>
+                            <SelectTrigger className="w-36 text-xs border-blue-300 bg-blue-50"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Tag">Tag</SelectItem>
+                              <SelectItem value="Item ID">Item ID</SelectItem>
+                              <SelectItem value="Description">Description</SelectItem>
+                              <SelectItem value="Quantity">Quantity</SelectItem>
+                              <SelectItem value="Pending Qty">Pending Qty</SelectItem>
+                              <SelectItem value="Desired Price">Desired Price</SelectItem>
+                              <SelectItem value="RFQ Assignee">RFQ Assignee</SelectItem>
+                              <SelectItem value="PO Assignee">PO Assignee</SelectItem>
+                              <SelectItem value="MPN">MPN</SelectItem>
+                              <SelectItem value="ERP Code">ERP Code</SelectItem>
+                              <SelectItem value="CPN">CPN</SelectItem>
+                              <SelectItem value="HSN">HSN</SelectItem>
+                              <SelectItem value="Requisition ID">Requisition ID</SelectItem>
+                            </SelectContent>
+                          </Select>
+
+                          <Select value={row.operator} onValueChange={(v) => updateCriteria(cs => cs.map(r => r.id === row.id ? { ...r, operator: v as any } : r))}>
+                            <SelectTrigger className="w-24 text-xs border-blue-300 bg-blue-50"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {['Quantity', 'Pending Qty', 'Desired Price'].includes(row.field) ? (
+                                <>
+                                  <SelectItem value=">=">&ge;</SelectItem>
+                                  <SelectItem value="<=">&le;</SelectItem>
+                                  <SelectItem value=">">{'>'}</SelectItem>
+                                  <SelectItem value="<">{'<'}</SelectItem>
+                                  <SelectItem value="=">=</SelectItem>
+                                </>
+                              ) : (
+                                <>
+                                  <SelectItem value="is">is</SelectItem>
+                                  <SelectItem value="is not">is not</SelectItem>
+                                  <SelectItem value="contains">contains</SelectItem>
+                                </>
+                              )}
+                            </SelectContent>
+                          </Select>
+
+                          {row.field === 'Tag' ? (
+                            <Select value={row.value} onValueChange={(v) => updateCriteria(cs => cs.map(r => r.id === row.id ? { ...r, value: v } : r))}>
+                              <SelectTrigger className="w-40 text-xs border-blue-300 bg-blue-50"><SelectValue placeholder="Select tag" /></SelectTrigger>
+                              <SelectContent>{allTags.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                            </Select>
+                          ) : row.field === 'Item ID' ? (
+                            <Select value={row.value} onValueChange={(v) => updateCriteria(cs => cs.map(r => r.id === row.id ? { ...r, value: v } : r))}>
+                              <SelectTrigger className="w-40 text-xs border-blue-300 bg-blue-50"><SelectValue placeholder="Select item" /></SelectTrigger>
+                              <SelectContent>{(allItemIds || []).map(id => <SelectItem key={id} value={id}>{id}</SelectItem>)}</SelectContent>
+                            </Select>
+                          ) : (row.field === 'RFQ Assignee' || row.field === 'PO Assignee') ? (
+                            <Select value={row.value} onValueChange={(v) => updateCriteria(cs => cs.map(r => r.id === row.id ? { ...r, value: v } : r))}>
+                              <SelectTrigger className="w-40 text-xs border-blue-300 bg-blue-50"><SelectValue placeholder="Select user" /></SelectTrigger>
+                              <SelectContent>{allCustomers.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              className="w-36 text-xs border-blue-300 bg-blue-50"
+                              type={['Quantity', 'Pending Qty', 'Desired Price'].includes(row.field) ? 'number' : 'text'}
+                              placeholder="Value"
+                              value={row.value}
+                              onChange={(e) => updateCriteria(cs => cs.map(r => r.id === row.id ? { ...r, value: e.target.value } : r))}
+                            />
+                          )}
+
+                          {idx > 0 && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => updateCriteria(cs => cs.filter(r => r.id !== row.id))}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Add condition + THEN */}
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      className="text-blue-600 text-xs font-medium hover:underline"
                       onClick={() => setLocal(prev => ({
                         ...prev,
                         actions: {
                           ...prev.actions,
-                          criteria: [...(prev.actions.criteria || []), {
-                            id: Date.now().toString(),
-                            conjunction: (prev.actions.criteria || []).length === 0 ? 'WHERE' : 'AND',
-                            field: 'Tag',
-                            operator: 'is',
-                            value: '',
-                          }],
+                          formulas: (prev.actions.formulas || []).map(f => f.id === rule.id ? {
+                            ...f,
+                            criteria: [...f.criteria, { id: Date.now().toString(), conjunction: 'AND' as const, field: 'Tag' as const, operator: 'is' as const, value: '' }],
+                          } : f),
                         },
                       }))}
                     >
                       + Add Condition
                     </button>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-gray-600">→ THEN</span>
+                      <Select
+                        value={rule.assignAction}
+                        onValueChange={(v) => setLocal(prev => ({
+                          ...prev,
+                          actions: {
+                            ...prev.actions,
+                            formulas: (prev.actions.formulas || []).map(f => f.id === rule.id ? { ...f, assignAction: v } : f),
+                          },
+                        }))}
+                      >
+                        <SelectTrigger className="w-28 text-xs border-green-300 bg-green-50"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="RFQ">RFQ</SelectItem>
+                          <SelectItem value="Direct PO">Direct PO</SelectItem>
+                          <SelectItem value="Hold">Hold</SelectItem>
+                          <SelectItem value="Scrap">Scrap</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              ))}
             </div>
           </TabsContent>
         </Tabs>
