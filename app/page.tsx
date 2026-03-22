@@ -5426,7 +5426,7 @@ export default function ProcurementDashboard() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Action</label>
                 <div className="flex flex-wrap gap-2">
-                  {['RFQ', 'Direct PO', 'Hold', 'Scrap'].map((action) => (
+                  {['RFQ', 'Direct PO'].map((action) => (
                     <button
                       key={action}
                       type="button"
@@ -5440,7 +5440,7 @@ export default function ProcurementDashboard() {
                       {action}
                     </button>
                   ))}
-                  {editAssigneeAction && !['RFQ', 'Direct PO', 'Hold', 'Scrap'].includes(editAssigneeAction) && (
+                  {editAssigneeAction && !['RFQ', 'Direct PO'].includes(editAssigneeAction) && (
                     <span className="px-3 py-1.5 text-sm rounded-md border bg-blue-600 text-white border-blue-600">{editAssigneeAction}</span>
                   )}
                 </div>

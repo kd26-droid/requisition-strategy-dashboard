@@ -1387,8 +1387,6 @@ export function SettingsPanel({
                                 <SelectContent>
                                   <SelectItem value="RFQ">RFQ</SelectItem>
                                   <SelectItem value="Direct PO">Direct PO</SelectItem>
-                                  <SelectItem value="Hold">Hold</SelectItem>
-                                  <SelectItem value="Scrap">Scrap</SelectItem>
                                 </SelectContent>
                               </Select>
                             </>
