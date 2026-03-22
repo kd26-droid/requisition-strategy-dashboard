@@ -4489,7 +4489,7 @@ export default function ProcurementDashboard() {
                               className={`text-xs px-1 py-0 ${
                                 item.action === "RFQ"
                                   ? "bg-blue-100 text-blue-800 border-blue-200"
-                                  : item.action === "Direct PO"
+                                  : item.action === "PO"
                                     ? "bg-green-100 text-green-800 border-green-200"
                                     : "bg-orange-100 text-orange-800 border-orange-200"
                               }`}
@@ -5426,7 +5426,7 @@ export default function ProcurementDashboard() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Action</label>
                 <div className="flex flex-wrap gap-2">
-                  {['RFQ', 'Direct PO'].map((action) => (
+                  {['RFQ', 'PO'].map((action) => (
                     <button
                       key={action}
                       type="button"
@@ -5440,7 +5440,7 @@ export default function ProcurementDashboard() {
                       {action}
                     </button>
                   ))}
-                  {editAssigneeAction && !['RFQ', 'Direct PO'].includes(editAssigneeAction) && (
+                  {editAssigneeAction && !['RFQ', 'PO'].includes(editAssigneeAction) && (
                     <span className="px-3 py-1.5 text-sm rounded-md border bg-blue-600 text-white border-blue-600">{editAssigneeAction}</span>
                   )}
                 </div>

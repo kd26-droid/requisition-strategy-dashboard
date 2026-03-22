@@ -1386,7 +1386,7 @@ export function SettingsPanel({
                                 <SelectTrigger className="w-28 text-xs border-green-300 bg-green-50"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="RFQ">RFQ</SelectItem>
-                                  <SelectItem value="Direct PO">Direct PO</SelectItem>
+                                  <SelectItem value="PO">PO</SelectItem>
                                 </SelectContent>
                               </Select>
                             </>
