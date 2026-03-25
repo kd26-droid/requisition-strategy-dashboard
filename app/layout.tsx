@@ -6,8 +6,8 @@ import { Toaster } from '@/components/ui/toaster'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Requisition Strategy Dashboard',
-  description: 'Requisition Strategy Dashboard by Factwise',
+  title: 'Procurement Strategy Dashboard',
+  description: 'Procurement Strategy Dashboard by Factwise',
 }
 
 export default function RootLayout({

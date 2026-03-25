@@ -3486,7 +3486,7 @@ export default function ProcurementDashboard() {
           <div className="mb-4">
             {/* Project Information - spans 2 columns on large screens */}
             <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Requisition Strategy</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Procurement Strategy</h1>
               <div className="flex items-center gap-2">
                 {hasAssignPermission && (
                   <>
